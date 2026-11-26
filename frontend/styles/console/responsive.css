@@ -1,0 +1,200 @@
+@media (max-width: 1600px) {
+    .stepper-form {
+        justify-content: flex-start !important;
+        gap: 8px;
+        flex-wrap: wrap !important;
+    }
+    .stepper-form.nav-pills .connector {
+        width: 50px;
+    }
+}
+@media (max-width: 1500px) {
+    .form-box .form-table .input-group-text {
+        display: none;
+    }
+    
+    
+}
+@media (max-width: 1380px) {
+    .stepper-form.nav-pills .nav-link {
+        font-size: 13px;
+    }
+    .stepper-form .circle {
+        width: 30px;
+        height: 30px;
+    }
+    .menu-link {
+        font-size: 14px;
+    }
+    .status-card .chart-container .status-box {
+        height: 235px !important;
+        width: max-content !important;
+    }
+    .report-card-box .report-card p {
+        font-size: 18px;
+    }
+}
+@media (max-width: 1200px) {
+    .user-name {
+        max-width: 130px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .side-navigation {
+        width: 30%;
+    }
+    .menu-link {
+        font-size: 15px;
+    }
+    .table-data thead tr th,
+    .table-data tbody tr td,
+    .table-data tbody tr th {
+        font-size: 14px;
+    }
+
+    .form-table th,
+    .form-table td {
+        min-width: 160px;
+        vertical-align: top;
+    }
+
+    .form-table .input-group,
+    .form-table input,
+    .form-table select {
+        width: 100%;
+        min-width: 140px;
+        box-sizing: border-box;
+    }
+    .form-table .input-group-text {
+        white-space: nowrap;
+    }
+    .table-data th,
+    .table-data td,
+    .preview-data th,
+    .preview-data td {
+        /* min-width: 160px; */
+        vertical-align: middle;
+    }
+    .table-data th:first-child,
+    .table-data td:first-child {
+        min-width: 60px;
+    }
+    .filters {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .dashboard-card-box {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+@media (min-width: 992px) {
+    .dropdown-menu-lg-start[data-bs-popper] {
+        right: 0 !important;
+        left: auto !important;
+    }
+}
+@media (max-width: 992px) {
+    .side-navigation {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 260px;
+        height: 100vh;
+        transform: translateX(-150%);
+        z-index: 1050;
+        transition: all ease 0.2s;
+    }
+    body.sidebar-open .side-navigation {
+        transform: translateX(0) !important;
+    }
+    body.sidebar-open::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 1040;
+    }
+    .content-box {
+        width: 100%;
+    }
+}
+@media (max-width: 991px) {
+    h1 {
+        font-size: 22px !important;
+    }
+    h2 {
+        font-size: 20px !important;
+    }
+    h3 {
+        font-size: 16px !important;
+    }
+
+    .cms-btn {
+        padding: 8px 18px;
+    }
+    .form-box .form-label {
+        font-size: 13px;
+    }
+}
+@media (max-width: 767px) {
+    p {
+        font-size: 14px;
+    }
+    .stepper-form {
+        display: grid !important;
+        grid-template-columns: repeat(1, 1fr) !important;
+    }
+    .stepper-form.nav-pills .connector {
+        width: 100%;
+    }
+    .filters {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .dashboard-card-box {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .status-card h2 {
+        font-size: 16px !important;
+    }
+    .report-card-box .report-card {
+        padding: 20px 25px;
+    }
+    .report-card-box .report-card p {
+        font-size: 14px;
+    }
+}
+@media (max-width: 576px) {
+    .side-navigation {
+        width: 80%;
+    }
+    .menu-link {
+        font-size: 14px;
+        gap: 8px;
+    }
+    .submenu li a {
+        padding: 10px 12px 10px 32px;
+        font-size: 13px;
+    }
+    .notifications {
+        width: 200px;
+    }
+
+    .notification-content ul li a {
+        font-size: 13px;
+    }
+    .form-box .input-group-text {
+        padding: 13px 12px;
+    }
+    .form-control::file-selector-button {
+        background-color: #fff !important;
+    }
+    .form-step .next-btn {
+        font-size: 10px;
+        padding: 10px 11px;
+    }
+    .filters {
+        grid-template-columns: repeat(1, 1fr);
+    }
+    .dashboard-card-box {
+        grid-template-columns: repeat(1, 1fr);
+    }
+}
