@@ -1248,8 +1248,11 @@ footer.site-footer .newsletter p{max-width:none}
 .gov-strip .gov-inner,.nav-row{width:min(var(--container),calc(100% - 48px));margin-left:auto;margin-right:auto}
 @media(max-width:760px){.gov-strip .gov-inner,.nav-row{width:calc(100% - 28px)}}
 
-/* Header menu fits the container width: tighter spacing below 1400px */
-@media (min-width:1200px) and (max-width:1399.98px){
+/* Header menu fits the container width. The header never grows past
+   --container (1240px), so the same tight spacing applies on every desktop
+   width, and labels like "About Us" never wrap onto two lines. */
+.main-nav .nav-item{white-space:nowrap}
+@media (min-width:1200px){
   .nav-row{gap:18px}
   .brand{min-width:0}
   .brand-copy strong{font-size:20px}

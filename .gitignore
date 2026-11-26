@@ -1,7 +1,7 @@
 # Opportunity Hub - monorepo (backend: Laravel API, frontend: Next.js)
 
 # Secrets: never commit (copy backend/.env.example to backend/.env)
-.env
+#.env
 .env.*
 !.env.example
 
@@ -13,7 +13,7 @@ out/
 
 # Database dumps / backups (contain user data and password hashes)
 backend/storage/app/backups/
-*.sql
+#*.sql
 *.sqlite
 
 # Logs, caches, editor and OS files
