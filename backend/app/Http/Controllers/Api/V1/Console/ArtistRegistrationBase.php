@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ArtistRegistration;
 use App\Models\User;
 use App\Notifications\SetArtistPassword;
+use App\Support\ZccScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ protected function validateListFilters(Request $request): array
         'search' => ['nullable', 'string', 'max:255'],
         'registration_status' => [
             'nullable',
-            Rule::in(['0', '1', '2']),
+            Rule::in(['0', '1', '2', '3']),
         ],
         'registration_type' => [
             'nullable',
@@ -60,8 +61,11 @@ protected function artistList(array $filters, int $perPage = 15)
         ->leftJoin('artist_group_details as ag', 'ag.user_id', '=', 'u.id')
         ->leftJoin('artist_institution_details as ai', 'ai.user_id', '=', 'u.id')
 
-        // Country-wise access
-        ->when(hasCountryAccess(), function ($query) use ($authCountryId) {
+        // Zonal Cultural Centre officials: only artists of their member States / UTs.
+        ->when(ZccScope::isZcc(), fn ($query) => ZccScope::apply($query, 'u'))
+
+        // Country-wise access (other country-scoped roles)
+        ->when(hasCountryAccess() && ! ZccScope::isZcc(), function ($query) use ($authCountryId) {
             if (empty($authCountryId)) {
                 $query->whereRaw('1 = 0');
                 return;
@@ -92,6 +96,7 @@ protected function artistList(array $filters, int $perPage = 15)
             'u.pincode',
             'u.country_id',
             'u.region_id',
+            'u.state',
             'u.verified_status',
             'c.name as country_name',
             'r.name as region_name',
@@ -212,6 +217,7 @@ protected function artistList(array $filters, int $perPage = 15)
             0 => 'pending',
             1 => 'approved',
             2 => 'rejected',
+            3 => 'changes_requested',
             default => 'not tracked',
         };
 
@@ -239,7 +245,9 @@ protected function artistList(array $filters, int $perPage = 15)
 
         if ($userId !== null) {
             $artist = $this->findArtistUser($userId);
-            abort_if((int) $artist->country_id !== (int) $authCountryId, 403, 'You can manage registrations only for your assigned country.');
+            ZccScope::isZcc()
+                ? ZccScope::authorize($artist)
+                : abort_if((int) $artist->country_id !== (int) $authCountryId, 403, 'You can manage registrations only for your assigned country.');
             $type = array_search((int) $artist->role_id, self::TYPES, true);
             $individual = DB::table('artist_registrations')->where('user_id', $artist->id)->first();
             $group = DB::table('artist_group_details')->where('user_id', $artist->id)->first();
@@ -269,7 +277,10 @@ protected function artistList(array $filters, int $perPage = 15)
         // Nodal users can manage registrations only for their assigned country.
         $countryId = (int) $authCountryId;
         $regions = $countryId
-            ? DB::table('art_regions')->where('country_id', $countryId)->where('status', 1)->orderBy('name')->get(['id', 'name'])
+            ? DB::table('art_regions')->where('country_id', $countryId)->where('status', 1)
+                // ZCC officials pick only their member States / UTs.
+                ->when(ZccScope::isZcc(), fn ($q) => $q->whereIn('id', ZccScope::coverage(ZccScope::zccId())['regions'] ?: [-1]))
+                ->orderBy('name')->get(['id', 'name'])
             : collect();
         $artForms = $countryId
             ? DB::table('art_forms')->where('country_id', $countryId)->where('status', 1)->where('parent_id', 0)->orderBy('name')->get(['id', 'name'])
@@ -329,7 +340,11 @@ protected function artistList(array $filters, int $perPage = 15)
         $request->merge(['country_id' => (int) $authCountryId]);
         $userId = $request->input('id');
         $artist = $userId ? $this->findArtistUser((int) $userId) : null;
-        abort_if($artist && (int) $artist->country_id !== (int) $authCountryId, 403, 'You can manage registrations only for your assigned country.');
+        if ($artist && ZccScope::isZcc()) {
+            ZccScope::authorize($artist);
+        } else {
+            abort_if($artist && (int) $artist->country_id !== (int) $authCountryId, 403, 'You can manage registrations only for your assigned country.');
+        }
         $type = (string) $request->input('registration_type');
 
         if (! array_key_exists($type, self::TYPES)) {
@@ -359,6 +374,16 @@ protected function artistList(array $filters, int $perPage = 15)
             foreach ($request->file('awards', []) as $awardIndex => $awardFiles) {
                 if (! empty($awardFiles['certificate'])) {
                     $storedPaths["award_certificate_{$awardIndex}"] = $this->storeUpload($awardFiles['certificate'], 'artist-awards');
+                }
+            }
+
+            // A ZCC official may register / move artists only within its member States / UTs.
+            if (ZccScope::isZcc()) {
+                $zone = ZccScope::coverage(ZccScope::zccId())['regions'];
+                if (! in_array((int) ($validated['region_id'] ?? 0), $zone, true)) {
+                    throw ValidationException::withMessages([
+                        'region_id' => 'Select a State / UT of your Zonal Cultural Centre.',
+                    ]);
                 }
             }
 
@@ -477,6 +502,8 @@ protected function artistList(array $filters, int $perPage = 15)
                 Rule::in([
                     ArtistRegistration::STATUS_APPROVED,
                     ArtistRegistration::STATUS_REJECTED,
+                    // "Request Changes": back to the artist to correct (verified_status 3).
+                    ArtistRegistration::STATUS_RETURNED,
                 ]),
             ],
             'remarks' => [
@@ -484,9 +511,11 @@ protected function artistList(array $filters, int $perPage = 15)
                 'string',
                 'max:5000',
                 Rule::requiredIf(
-                    fn () => $request->input('status') === ArtistRegistration::STATUS_REJECTED
+                    fn () => in_array($request->input('status'), [ArtistRegistration::STATUS_REJECTED, ArtistRegistration::STATUS_RETURNED], true)
                 ),
             ],
+        ], [
+            'remarks.required' => 'Please enter the remarks; they are shown to the artist.',
         ]);
 
         $authCountryId = authUserData('country_id');
@@ -498,8 +527,11 @@ protected function artistList(array $filters, int $perPage = 15)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Enforce country-level access for country-scoped users.
-            if (hasCountryAccess()) {
+            // ZCC officials: only artists of their member States / UTs.
+            if (ZccScope::isZcc()) {
+                ZccScope::authorize($user);
+            } elseif (hasCountryAccess()) {
+                // Enforce country-level access for other country-scoped users.
                 abort_if(
                     empty($authCountryId) ||
                     (int) $user->country_id !== (int) $authCountryId,
@@ -510,7 +542,7 @@ protected function artistList(array $filters, int $perPage = 15)
 
             if ((int) $user->verified_status !== 0) {
                 throw ValidationException::withMessages([
-                    'status' => 'Only pending registrations can be approved or rejected.',
+                    'status' => 'Only pending registrations can be approved, rejected or returned for changes.',
                 ]);
             }
 
@@ -533,7 +565,11 @@ protected function artistList(array $filters, int $perPage = 15)
             }
 
             $oldStatus = (int) $user->verified_status;
-            $newStatus = $validated['status'] === ArtistRegistration::STATUS_APPROVED ? 1 : 2;
+            $newStatus = match ($validated['status']) {
+                ArtistRegistration::STATUS_APPROVED => 1,
+                ArtistRegistration::STATUS_RETURNED => 3,
+                default => 2,
+            };
             $remarks = trim($validated['remarks'] ?? '');
 
             DB::table('users')
@@ -991,7 +1027,7 @@ protected function artistList(array $filters, int $perPage = 15)
     {
         return User::query()
             ->select([
-                'id', 'regno', 'role_id', 'country_id', 'region_id', 'city', 'full_name',
+                'id', 'regno', 'role_id', 'country_id', 'region_id', 'state', 'district', 'city', 'full_name',
                 'email', 'mobile', 'gender', 'dob', 'designation', 'address', 'pincode',
                 'active', 'verified_status', 'created_at',
             ])

@@ -67,8 +67,34 @@ const OPTIONS: sanitizeHtml.IOptions = {
   },
 };
 
-export default function CmsHtml({ html }: { html: string }) {
+const ENTITIES: Record<string, string> = { amp: "&", nbsp: " ", quot: '"', apos: "'", lt: "<", gt: ">", mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘", hellip: "…" };
+const plain = (s: string) =>
+  s.replace(/<[^>]+>/g, "").replace(/&(#\d+|[a-z]+);/gi, (m, e: string) => (e[0] === "#" ? String.fromCharCode(Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m)).replace(/\s+/g, " ").trim();
+const slugify = (s: string) => plain(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "section";
+
+export type CmsHeading = { id: string; text: string };
+
+/**
+ * Sanitised HTML with an id on every <h2> (for "On this page" links), plus the
+ * list of those headings. Used by the content page and by <CmsHtml>.
+ */
+export function cmsDocument(html: string): { html: string; headings: CmsHeading[]; words: number } {
   // CKEditor leaves empty "<p>&nbsp;</p>" spacer paragraphs; collapse them.
   const clean = sanitizeHtml(html, OPTIONS).replace(/<p>(?:&nbsp;|\s)*<\/p>/g, "");
-  return <div className="cms-content" dangerouslySetInnerHTML={{ __html: clean }} />;
+  const seen = new Map<string, number>();
+  const headings: CmsHeading[] = [];
+  const out = clean.replace(/<h2([^>]*)>([\s\S]*?)<\/h2>/g, (_m, attrs: string, inner: string) => {
+    let id = slugify(inner);
+    const n = seen.get(id) ?? 0;
+    seen.set(id, n + 1);
+    if (n) id = `${id}-${n + 1}`;
+    const text = plain(inner);
+    if (text) headings.push({ id, text });
+    return `<h2${attrs.replace(/\sid="[^"]*"/, "")} id="${id}">${inner}</h2>`;
+  });
+  return { html: out, headings, words: plain(clean).split(" ").filter(Boolean).length };
+}
+
+export default function CmsHtml({ html }: { html: string }) {
+  return <div className="cms-content" dangerouslySetInnerHTML={{ __html: cmsDocument(html).html }} />;
 }

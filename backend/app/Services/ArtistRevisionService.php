@@ -9,6 +9,7 @@ use App\Mail\ZccArtistProfileActionMail;
 use App\Models\ArtistProfileRevision as Revision;
 use App\Models\ArtistProfileRevisionEvent as RevisionEvent;
 use App\Models\User;
+use App\Support\ZccScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -17,10 +18,11 @@ use Throwable;
 /**
  * Artist profile update requests ("revisions"), as in the BRICS Artist Registry:
  *
- *  - verified_status 0 (new / pending first review): the artist saves directly.
+ *  - verified_status 0 (new / pending first review) or 3 (changes requested by
+ *    the ZCC): the artist saves directly; saving a 3 sends it back to 0 (pending).
  *  - verified_status 1 (approved) or 2 (rejected): every change is a revision
- *    (draft or submitted). Only one submitted revision at a time. A ZCC Nodal
- *    Officer (role 8) or Admin approves it (snapshot applied to the live data)
+ *    (draft or submitted). Only one submitted revision at a time. An official of
+ *    the artist's Zonal Cultural Centre (role 8, App\Support\ZccScope) or an Admin approves it (snapshot applied to the live data)
  *    or rejects it with remarks. Approving the correction of a rejected
  *    application also marks the registration approved.
  *
@@ -219,9 +221,10 @@ class ArtistRevisionService
                 [$name, $user->regno, (int) $revision->revision_number, $label, $status, $this->frontend('/artist/application'), $revision->submitted_at],
                 (bool) config('mail_notifications.artist_profile_submission', true));
 
-            $reviewers = User::query()->where('role_id', self::ZCC_ROLE)->where('active', 1)->whereNotNull('email')->get(['id', 'email', 'full_name']);
+            // Only the ZCC(s) whose member States / UTs include the artist's State.
+            $reviewers = ZccScope::officialsFor($user)->filter(fn ($u) => filled($u->email))->values();
             if ($reviewers->isEmpty()) {
-                Log::warning('No active ZCC Nodal Officer to notify about an artist profile request.', ['revision_id' => $revision->id]);
+                Log::warning('No active ZCC official for this artist\'s State / UT to notify about a profile request.', ['revision_id' => $revision->id, 'user_id' => $user->id]);
             }
             $typeLabel = ArtistProfileService::TYPE_LABELS[$revision->snapshot['type'] ?? ''] ?? 'Artist';
             foreach ($reviewers as $officer) {

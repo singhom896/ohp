@@ -74,7 +74,7 @@ async function OpportunityBody({ searchParams }: Props) {
               <p className="pop-pre mb-3">Approved artists, groups and institutes whose profile matches receive this opportunity in their dashboard and can respond there. Opportunity Hub does not charge any fee.</p>
               <div className="d-flex flex-wrap gap-2">
                 <Link href="/login" className="pop-cta">Login to respond</Link>
-                <Link href="/register?as=artist" className="op-btn op-btn-ghost">Register as Artist / Group</Link>
+                <Link href="/register?as=artist" className="op-btn op-btn-ghost">Register as Artist / Group / Organisation</Link>
               </div>
             </section>
           </aside>

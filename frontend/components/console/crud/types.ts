@@ -94,5 +94,7 @@ export type ListConfig<T> = {
   actions?: (row: T, reload: () => void) => React.ReactNode;
   /** Extra buttons next to "Create". */
   toolbar?: React.ReactNode;
+  /** Extra buttons on the left of the toolbar row (Create stays on the right). */
+  toolbarStart?: React.ReactNode;
   emptyText?: string;
 };

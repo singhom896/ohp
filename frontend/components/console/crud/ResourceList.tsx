@@ -120,6 +120,7 @@ export default function ResourceList<T extends Row>(cfg: ListConfig<T>) {
       )}
 
       <div className="d-flex justify-content-end gap-2">
+        {cfg.toolbarStart && <div className="me-auto d-flex gap-2">{cfg.toolbarStart}</div>}
         {cfg.toolbar}
         {canCreate && cfg.createHref && (
           <Link href={cfg.createHref} className="theme-btn rounded-2">

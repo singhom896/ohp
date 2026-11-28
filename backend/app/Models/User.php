@@ -47,7 +47,14 @@ class User extends Authenticatable implements JWTSubject
             return 'Your account is inactive. Please contact the administrator.';
         }
 
-        switch ((int) $this->verified_status) {
+        // Artist accounts (5, 6, 7) sign in while their registration is Pending (0),
+        // Rejected (2) or Changes Requested (3): they complete / correct the profile
+        // from the dashboard. Approval (1) is what lists them publicly and makes them
+        // bookable (checked where that happens), not what lets them log in.
+        $artistReviewable = in_array((int) $this->role_id, [5, 6, 7], true)
+            && in_array((int) $this->verified_status, [0, 2, 3], true);
+
+        switch ($artistReviewable ? 1 : (int) $this->verified_status) {
             case 1:
                 break;
             case 0:

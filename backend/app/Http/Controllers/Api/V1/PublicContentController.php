@@ -88,7 +88,8 @@ class PublicContentController extends Controller
                 ->from('contents')
                 ->whereColumn('contents.menu_id', 'menu_items.id')
                 ->where('contents.is_active', 1)))
-            ->orderBy('order_index')
+            // Footer Menu has its own order (footer_order); the Main Menu uses order_index.
+            ->when($flag === 'is_footer', fn ($q) => $q->orderByRaw('COALESCE(footer_order, 100000 + order_index)'), fn ($q) => $q->orderBy('order_index'))
             ->orderBy('id')
             ->get(['id', 'title', 'url', 'target', 'parent_id']);
 

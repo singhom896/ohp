@@ -18,6 +18,8 @@ export default function DashboardHeader() {
           <button type="button">A</button>
           <button type="button">A+</button>
           <a href="#">Screen Reader</a>
+          {/* Select Language: BHASHINI plugin (script in app/(moc)/layout.tsx). Leave empty. */}
+          <div className="bhashini-plugin-container" title="Select Language" suppressHydrationWarning />
           <a href="#">English | हिंदी</a>
           <UserMenu />
         </div>

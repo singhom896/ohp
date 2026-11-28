@@ -3,6 +3,7 @@
 // User Management + Administration modules.
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useConsole } from "@/context/ConsoleContext";
 import { makeCrud } from "../crud/makeCrud";
 import ResourceList from "../crud/ResourceList";
 import { countryField, dash, formatDate, GENDER_OPTIONS, regionField, statusField } from "../crud/common";
@@ -204,7 +205,8 @@ const menusList = (parentId: string | null): ListConfig<Row> => ({
     { key: "url", header: "URL" },
     { key: "page_type_label", header: "Page Type" },
     { key: "menu_type_label", header: "Menu Type" },
-    { key: "order_index", header: "Order" },
+    { key: "order_index", header: "Main Order", render: (r) => (String(r.menu_type_label).includes("Main") ? String(r.order_index) : "—") },
+    { key: "footer_order", header: "Footer Order", render: (r) => (String(r.menu_type_label).includes("Footer") ? dash(r.footer_order) : "—") },
     {
       key: "children_count",
       header: "Child Menus",
@@ -252,7 +254,7 @@ const menusCrud = makeCrud<Row>(menusList(null), {
     },
     { name: "page_type", label: "Page Type", type: "select", icon: "bi-file-earmark", required: true, options: PAGE_TYPES, emptyOption: "Select Page Type" },
     { name: "menu_type", label: "Menu Type", type: "select", icon: "bi-menu-button-wide", required: true, options: MENU_TYPES, emptyOption: "Select Menu Type" },
-    { name: "ordering", label: "Order", type: "number", icon: "bi-sort-numeric-down", required: true },
+    { name: "ordering", label: "Order (Main Menu)", type: "number", icon: "bi-sort-numeric-down", required: true, help: "Footer Menu order: use Manage Menu Ordering." },
     statusField(),
   ],
 });
@@ -261,5 +263,19 @@ export const MenusEdit = menusCrud.Edit;
 
 export function MenusList() {
   const parent = useSearchParams().get("parent_id");
-  return <ResourceList<Row> key={parent ?? "root"} {...menusList(parent)} />;
+  const { can } = useConsole();
+  return (
+    <ResourceList<Row>
+      key={parent ?? "root"}
+      {...menusList(parent)}
+      // Drag-and-drop ordering of the public Main Menu / Footer Menu (/admin/menus/ordering).
+      toolbarStart={
+        !parent && can("/menus", "edit") ? (
+          <Link href="/admin/menus/ordering" className="border-btn rounded-2 d-inline-flex align-items-center">
+            <i className="bi bi-arrow-down-up me-2" aria-hidden="true" /> Manage Menu Ordering
+          </Link>
+        ) : undefined
+      }
+    />
+  );
 }

@@ -29,7 +29,10 @@ type Payload = {
   type_label: string;
   regno: string | null;
   email: string;
+  email_verified?: boolean;
+  mobile_verified?: boolean;
   verified_status: number | null;
+  changes_requested?: string | null;
   profile_completed: boolean;
   mode: "direct" | "request";
   locked: boolean;
@@ -66,9 +69,10 @@ type Payload = {
 type Errors = Record<string, string[]>;
 
 const STATUS: Record<number, [string, string, string]> = {
-  0: ["Under review", "bg-warning text-dark", "Your registration is being reviewed. You can keep your profile up to date in the meantime."],
+  0: ["Pending approval", "bg-warning text-dark", "Your registration is pending approval by your Zonal Cultural Centre. You can keep your profile up to date in the meantime."],
   1: ["Approved", "bg-success", "Your registration is approved."],
   2: ["Rejected", "bg-danger", "Your registration was not approved. Update your details and contact the helpdesk if you need help."],
+  3: ["Changes requested", "bg-info text-dark", "Your Zonal Cultural Centre has asked you to update your profile."],
 };
 
 let keySeq = 0;
@@ -231,7 +235,8 @@ function ProfileForm({ data, onSaved, onReset }: { data: Payload; onSaved: (p: P
     if (!/^[6-9]\d{9}$/.test(text("mobile"))) e.mobile = ["Enter a valid 10-digit Indian mobile number."];
     need("state_id", "State / Union Territory");
     need("district_id", "District");
-    if (type !== "individual") { need("city", "City / Town"); need("pincode", "PIN code"); need("address", "Address"); need("designation", "Designation"); }
+    need("city", type === "individual" ? "City / Town / Village" : "City / Town"); need("pincode", "PIN code");
+    if (type !== "individual") { need("address", "Address"); need("designation", "Designation"); }
     if (text("pincode") && !/^[1-9]\d{5}$/.test(text("pincode"))) e.pincode = ["Enter a valid 6-digit PIN code."];
     links.forEach((l, i) => { if (l.url.trim() && !/^https:\/\/\S+\.\S+/.test(l.url.trim())) e[`portfolio_links.${i}`] = ["Use a full https:// link."]; });
     awards.forEach((a, i) => { if (!a.name.trim()) e[`awards.${i}.name`] = ["Enter the award / recognition name."]; });
@@ -345,11 +350,11 @@ function ProfileForm({ data, onSaved, onReset }: { data: Payload; onSaved: (p: P
           options={toOptions(districts)} placeholder={text("state_id") ? "Select District" : "Select State / UT first"} disabled={!text("state_id")} error={err("district_id")} />
       </Col>
       <Col>
-        <TextInput name="city" label={type === "individual" ? "City / Town / Village" : "City / Town"} icon="bi-buildings" required={type !== "individual"}
+        <TextInput name="city" label={type === "individual" ? "City / Town / Village" : "City / Town"} icon="bi-buildings" required
           value={text("city")} onChange={set("city")} maxLength={100} error={err("city")} />
       </Col>
       <Col>
-        <TextInput name="pincode" label="PIN Code" icon="bi-mailbox" inputMode="numeric" required={type !== "individual"} value={text("pincode")}
+        <TextInput name="pincode" label="PIN Code" icon="bi-mailbox" inputMode="numeric" required value={text("pincode")}
           onChange={(val) => set("pincode")(val.replace(/\D/g, "").slice(0, 6))} maxLength={6} error={err("pincode")} />
       </Col>
     </>
@@ -362,8 +367,14 @@ function ProfileForm({ data, onSaved, onReset }: { data: Payload; onSaved: (p: P
           onChange={() => undefined} disabled className="bg-input-disabled" help="Verified login email — cannot be changed here." />
       </Col>
       <Col>
-        <TextInput name="mobile" label="Mobile Number" icon="bi-phone" required inputMode="numeric" value={text("mobile")}
-          onChange={(val) => set("mobile")(val.replace(/\D/g, "").slice(0, 10))} maxLength={10} error={err("mobile")} help="10-digit Indian mobile number." />
+        {data.mobile_verified ? (
+          // Verified mobile = login identifier: read-only (the API rejects a change too).
+          <TextInput name="mobile" label="Mobile Number" icon="bi-phone" required value={text("mobile")}
+            onChange={() => undefined} disabled className="bg-input-disabled" error={err("mobile")} help="Verified mobile number — cannot be changed here." />
+        ) : (
+          <TextInput name="mobile" label="Mobile Number" icon="bi-phone" required inputMode="numeric" value={text("mobile")}
+            onChange={(val) => set("mobile")(val.replace(/\D/g, "").slice(0, 10))} maxLength={10} error={err("mobile")} help="10-digit Indian mobile number." />
+        )}
       </Col>
     </>
   );
@@ -488,6 +499,19 @@ function ProfileForm({ data, onSaved, onReset }: { data: Payload; onSaved: (p: P
       ) : !data.profile_completed ? (
         <div className="alert alert-warning"><i className="bi bi-info-circle me-2" />Complete your profile so organisers can discover you. Fields marked <span className="text-danger">*</span> are required.</div>
       ) : null}
+      {data.verified_status === 3 && (
+        <div className="alert alert-warning">
+          <b><i className="bi bi-pencil-square me-2" aria-hidden="true" />Your Zonal Cultural Centre has requested changes to your registration.</b>
+          {data.changes_requested && <div className="mt-1">Remarks: {data.changes_requested}</div>}
+          <div className="small mt-1">Update the details below and save; your profile goes back to your Zonal Cultural Centre for review.</div>
+        </div>
+      )}
+      {data.verified_status === 0 && data.profile_completed && !locked && (
+        <div className="alert alert-light border">
+          <i className="bi bi-hourglass-split me-2" aria-hidden="true" />
+          {status?.[2]}
+        </div>
+      )}
       {!locked && data.initial_rejection && (
         <div className="alert alert-danger">
           <b><i className="bi bi-x-octagon me-2" aria-hidden="true" />Your registration was not approved.</b>

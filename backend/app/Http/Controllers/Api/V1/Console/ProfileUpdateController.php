@@ -10,6 +10,7 @@ use App\Models\ArtistProfileRevisionEvent as RevisionEvent;
 use App\Models\User;
 use App\Services\ArtistProfileService;
 use App\Services\ArtistRevisionService;
+use App\Support\ZccScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -79,6 +80,7 @@ class ProfileUpdateController extends Controller
         $rev = Revision::query()->findOrFail($id);
         abort_if($rev->status === Revision::STATUS_DRAFT, 404);
         $user = User::query()->findOrFail($rev->user_id);
+        ZccScope::authorize($user);
         $current = $this->profiles->snapshotFor($user);
         $rows = $this->profiles->compare($current, $rev->snapshot);
         $people = User::query()->whereIn('id', array_filter([$rev->decided_by]))->pluck('full_name', 'id');
@@ -118,7 +120,9 @@ class ProfileUpdateController extends Controller
             'remarks'  => ['nullable', 'string', 'max:5000', Rule::requiredIf(fn () => $request->input('decision') === 'rejected')],
         ], ['remarks.required' => 'Please give the reason for rejection; it is sent to the artist.']);
 
-        $rev = $this->revisions->decide(Revision::query()->findOrFail($id), $data['decision'], $data['remarks'] ?? null, $request->user(), $request->ip());
+        $revision = Revision::query()->findOrFail($id);
+        ZccScope::authorize(User::query()->findOrFail($revision->user_id));
+        $rev = $this->revisions->decide($revision, $data['decision'], $data['remarks'] ?? null, $request->user(), $request->ip());
 
         return $this->success(['status' => $rev->status], $data['decision'] === 'approved'
             ? 'Request approved. The changes are now live and the artist has been informed.'
@@ -143,6 +147,7 @@ class ProfileUpdateController extends Controller
             ])->values();
 
         $resubmitted = RevisionEvent::query()->where('action', 'resubmitted')
+            ->when(ZccScope::isZcc(), fn ($q) => $q->whereIn('user_id', ZccScope::apply(User::query()->select('users.id'))))
             ->when($f['date_from'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '>=', $d))
             ->when($f['date_to'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '<=', $d))->count();
 
@@ -157,7 +162,7 @@ class ProfileUpdateController extends Controller
 
         return $this->success([
             'totals' => [
-                'approved_profiles' => User::query()->whereIn('role_id', [5, 6, 7])->where('verified_status', 1)->count(),
+                'approved_profiles' => ZccScope::apply(User::query()->whereIn('role_id', [5, 6, 7])->where('verified_status', 1))->count(),
                 'pending'     => $rows->where('status', 'submitted')->count(),
                 'approved'    => $rows->where('status', 'approved')->count(),
                 'rejected'    => $rows->where('status', 'rejected')->count(),
@@ -177,6 +182,7 @@ class ProfileUpdateController extends Controller
             ->leftJoin('artist_institution_details as ai', 'ai.user_id', '=', 'u.id')
             ->whereIn('r.status', ['submitted', 'approved', 'rejected'])
             ->whereNotNull('r.submitted_at') // excludes the automatic baseline (#1)
+            ->when(ZccScope::isZcc(), fn ($q) => ZccScope::apply($q, 'u')) // ZCC: own member States / UTs
             ->when($f['registration_type'] ?? null, fn ($q, $t) => $q->where('r.registration_type', (int) $t))
             ->when($f['date_from'] ?? null, fn ($q, $d) => $q->whereDate('r.submitted_at', '>=', $d))
             ->when($f['date_to'] ?? null, fn ($q, $d) => $q->whereDate('r.submitted_at', '<=', $d))

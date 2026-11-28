@@ -4,6 +4,7 @@
 // Its own root layout, separate from app/(site) and app/(moc), so the panel's
 // style.css never mixes with the public site styles.
 import type { Metadata } from "next";
+import Script from "next/script";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.min.css";
 import "@/styles/console/style.css";
@@ -42,6 +43,13 @@ export default function ConsoleRootLayout({ children }: { children: React.ReactN
           </ConsoleProvider>
         </AuthProvider>
         <BootstrapClient />
+        {/* BHASHINI Translation Plugin, as on the public site (app/(site)/layout.tsx):
+            fills .bhashini-plugin-container in the Topbar with the language picker.
+            The chosen language is stored by the plugin per origin, so a language
+            picked before login stays active on every dashboard (Artist, Engagement
+            Partner, ZCC, Admin, Super Admin). "lazyOnload" = after hydration, to
+            avoid React hydration mismatches when it rewrites the page text. */}
+        <Script src="https://translation-plugin.bhashini.co.in/v3/website_translation_utility.js" strategy="lazyOnload" />
       </body>
     </html>
   );

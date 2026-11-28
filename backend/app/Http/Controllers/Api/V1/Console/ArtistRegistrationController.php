@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Api\V1\Console;
 
 use App\Http\Controllers\Api\Concerns\ApiResponse;
 use App\Http\Controllers\Api\Concerns\ConsoleScope;
+use App\Models\ArtistRegistration;
+use App\Models\ZonalCulturalCentre;
+use App\Services\NotificationService;
+use App\Support\ZccScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -19,7 +23,11 @@ use Illuminate\Http\Request;
  *   GET   /artists/{id}               preview
  *   POST  /artists                    create (multipart)
  *   POST  /artists/{id}               update (multipart)
- *   PATCH /artists/{id}/status        { status: approved|rejected, remarks }
+ *   PATCH /artists/{id}/status        { status: approved|rejected|returned, remarks }
+ *                                     (returned = "Request Changes", verified_status 3)
+ *
+ * ZCC officials (role 8) see and act on artists of their member States / UTs
+ * only (App\Support\ZccScope).
  */
 class ArtistRegistrationController extends ArtistRegistrationBase
 {
@@ -30,6 +38,11 @@ class ArtistRegistrationController extends ArtistRegistrationBase
         'group'         => 'Artist Group',
         'institutional' => 'Institute / Organization',
     ];
+
+    /** users.verified_status */
+    public const STATUS_LABELS = ['0' => 'Pending', '1' => 'Approved', '2' => 'Rejected', '3' => 'Changes Requested'];
+
+    public function __construct(private readonly NotificationService $notifications) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -61,7 +74,8 @@ class ArtistRegistrationController extends ArtistRegistrationBase
                 'to'           => $page->lastItem(),
             ],
             'type_labels'  => self::TYPE_LABELS,
-            'status_labels'=> ['0' => 'Pending', '1' => 'Approved', '2' => 'Rejected'],
+            'status_labels'=> self::STATUS_LABELS,
+            'zcc'          => $this->zccInfo(),
         ]);
     }
 
@@ -84,7 +98,9 @@ class ArtistRegistrationController extends ArtistRegistrationBase
         $data = $this->previewData($id);
         $artist = $data['artist'];
 
-        if (hasCountryAccess()) {
+        if (ZccScope::isZcc()) {
+            ZccScope::authorize($artist);
+        } elseif (hasCountryAccess()) {
             abort_if(
                 (int) $artist->country_id !== (int) $this->countryId(),
                 403,
@@ -104,7 +120,16 @@ class ArtistRegistrationController extends ArtistRegistrationBase
         $data['type_label'] = self::TYPE_LABELS[$data['type']] ?? '—';
         // Filled from the artist's own My Profile form (India State/UT + district).
         $data['state_name'] = $artist->state ? \DB::table('states')->where('id', $artist->state)->value('StateName') : null;
-        $data['district_name'] = $artist->district ? \DB::table('districts')->where('id', $artist->district)->value('DistrictName') : null;        $data['can_change_status'] = (int) $artist->verified_status === 0 && $this->can('/artist', 'edit');
+        $data['district_name'] = $artist->district ? \DB::table('districts')->where('id', $artist->district)->value('DistrictName') : null;
+        $data['can_change_status'] = (int) $artist->verified_status === 0 && $this->can('/artist', 'edit');
+        $data['status_label'] = self::STATUS_LABELS[(string) (int) $artist->verified_status] ?? '—';
+        // Remarks sent with the latest "Request Changes".
+        $data['changesRequested'] = (int) $artist->verified_status === 3
+            ? \DB::table('artist_status_histories')->where('user_id', $artist->id)->where('new_status', 3)->latest('id')->value('remarks')
+            : null;
+        // Every ZCC whose member States include this artist's State / UT.
+        $data['zccs'] = ZonalCulturalCentre::query()->whereIn('id', ZccScope::zccIdsFor($artist))->orderBy('position')
+            ->get(['id', 'code', 'name', 'headquarters']);
 
         return $this->success($data);
     }
@@ -133,11 +158,42 @@ class ArtistRegistrationController extends ArtistRegistrationBase
     {
         $request->merge(['id' => $id]);
         $validated = $this->applyStatusChange($request);
+        $status = $validated['status'];
+        $remarks = trim((string) ($validated['remarks'] ?? '')) ?: null;
+
+        // In-app notification to the artist (shown on their dashboard bell).
+        [$title, $body] = match ($status) {
+            ArtistRegistration::STATUS_APPROVED => ['Your registration has been approved', $remarks ?? 'Your artist profile is now approved and listed on Opportunity Hub.'],
+            ArtistRegistration::STATUS_RETURNED => ['Changes requested on your registration', $remarks],
+            default => ['Your registration was not approved', $remarks],
+        };
+        $this->notifications->notify($id, $title, $body, $status === ArtistRegistration::STATUS_APPROVED ? '/application' : '/profile');
 
         return $this->success(
-            ['status' => $validated['status']],
-            'Artist registration ' . ucfirst($validated['status']) . ' successfully.'
+            ['status' => $status],
+            match ($status) {
+                ArtistRegistration::STATUS_APPROVED => 'Artist registration approved successfully.',
+                ArtistRegistration::STATUS_RETURNED => 'Changes requested. The artist has been informed and can update the profile.',
+                default => 'Artist registration rejected successfully.',
+            }
         );
+    }
+
+    /** Signed-in ZCC official's centre and member States / UTs (null for other roles). */
+    private function zccInfo(): ?array
+    {
+        if (! ZccScope::isZcc()) {
+            return null;
+        }
+        $zcc = ZccScope::centre();
+
+        return [
+            'code'   => $zcc?->code,
+            'name'   => $zcc?->name,
+            'headquarters' => $zcc?->headquarters,
+            'states' => $zcc ? \DB::table('zcc_states as z')->join('states as s', 's.id', '=', 'z.state_id')
+                ->where('z.zcc_id', $zcc->id)->orderBy('s.StateName')->pluck('s.StateName') : [],
+        ];
     }
 
     /** Add *_url fields for every stored upload path on a detail row. */

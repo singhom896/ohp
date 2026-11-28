@@ -51,7 +51,7 @@ export default function NewsletterForm() {
           aria-describedby="newsletter-msg"
         />
         <button type="submit" disabled={busy}>
-          {busy ? "Joining…" : "Join"} <i className="bi bi-arrow-right" aria-hidden="true" />
+          {busy ? "Subscribing…" : "Subscribe"} <i className="bi bi-arrow-right" aria-hidden="true" />
         </button>
       </form>
       <p id="newsletter-msg" className={`newsletter-msg${msg ? (msg.ok ? " ok" : " err") : ""}`} role="status" aria-live="polite">

@@ -74,6 +74,11 @@ export default function Topbar({ onToggleMenu, menuExpanded }: { onToggleMenu: (
           <a href="#maincontent" className="visually-hidden-focusable">
             Skip to main content
           </a>
+          {/* Select Language: the BHASHINI translation plugin (script in
+              app/(dashboard)/layout.tsx) fills this with its language picker, so
+              translation keeps working after login. Leave it empty. */}
+          <div className="bhashini-plugin-container oh-lang" title="Select Language" suppressHydrationWarning />
+          <span className="oh-divider" aria-hidden="true" />
           {/* Notifications: artist and partner consoles (module /notifications). */}
           {can("/notifications") && (
             <>

@@ -6,7 +6,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import CmsHtml from "@/components/site/CmsHtml";
+import { cmsDocument } from "@/components/site/CmsHtml";
+import PageHero from "@/components/site/pages/PageHero";
 import { getCmsPage, getFooterLinks } from "@/lib/api/public";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -43,28 +44,40 @@ async function PageBody({ params }: Props) {
   const page = await getCmsPage(slug);
   if (!page) notFound();
 
-  const updated = page.updated_at
-    ? new Date(page.updated_at).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
-    : null;
+  const doc = cmsDocument(page.content);
+  // "On this page" for longer pages (3+ sections).
+  const toc = doc.headings.length >= 3 ? doc.headings : [];
 
   return (
     <>
-      <section className="cms-hero">
+      <PageHero title={page.title} intro="Official publication of Opportunity Hub — Ministry of Culture." />
+      <section className="cms-body">
         <div className="container">
-          <nav aria-label="Breadcrumb" className="cms-crumbs">
-            <Link href="/">Home</Link>
-            <span aria-hidden="true">/</span>
-            <span aria-current="page">{page.title}</span>
-          </nav>
-          <h1>{page.title}</h1>
-          {updated && <p className="cms-updated">Last updated: {updated}</p>}
+          <div className="cms-head">
+            <h2>{page.title}</h2>
+            <span className="cms-head-bar" aria-hidden="true" />
+          </div>
+          <div className={`cms-layout${toc.length ? " has-toc" : ""}`}>
+            {toc.length > 0 && (
+              <aside className="cms-toc" aria-label="On this page">
+                <div className="cms-toc-title"><i className="bi bi-list-ul" aria-hidden="true" /> On this page</div>
+                <ol>
+                  {toc.map((h) => (
+                    <li key={h.id}><a href={`#${h.id}`}>{h.text}</a></li>
+                  ))}
+                </ol>
+              </aside>
+            )}
+            <article className="cms-card">
+              <div className="cms-content" dangerouslySetInnerHTML={{ __html: doc.html }} />
+            </article>
+          </div>
+          <div className="cms-foot">
+            <Link href="/" className="cms-back"><i className="bi bi-arrow-left" aria-hidden="true" /> Back to Home</Link>
+            <a href="#main-content" className="cms-top">Back to top <i className="bi bi-arrow-up" aria-hidden="true" /></a>
+          </div>
         </div>
       </section>
-      <div className="container">
-        <article className="cms-card">
-          <CmsHtml html={page.content} />
-        </article>
-      </div>
     </>
   );
 }
@@ -72,18 +85,20 @@ async function PageBody({ params }: Props) {
 function PageSkeleton() {
   return (
     <>
-      <section className="cms-hero">
-        <div className="container">
+      <section className="site-hero">
+        <div className="container site-hero-inner">
           <div className="cms-skel cms-skel-title" />
         </div>
       </section>
-      <div className="container">
-        <article className="cms-card" aria-busy="true">
-          {[90, 100, 96, 70, 100, 85].map((w, i) => (
-            <div key={i} className="cms-skel" style={{ width: `${w}%` }} />
-          ))}
-        </article>
-      </div>
+      <section className="cms-body">
+        <div className="container">
+          <article className="cms-card" aria-busy="true">
+            {[90, 100, 96, 70, 100, 85].map((w, i) => (
+              <div key={i} className="cms-skel" style={{ width: `${w}%` }} />
+            ))}
+          </article>
+        </div>
+      </section>
     </>
   );
 }

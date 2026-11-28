@@ -14,16 +14,29 @@ use Illuminate\Support\Facades\DB;
  *   Organisation / Institute  OH-AO-00003
  *   Engagement Partner        OH-EP-00004
  *
- * Staff accounts (Admin, Ministry, ZCC ...) keep their own numbering.
+ * Zonal Cultural Centre accounts (role 8): OH-ZCC- + the user's primary key,
+ * 5 digits (users.id 123 -> OH-ZCC-00123). Unique because the id is; assigned
+ * after the user row is saved (forUser()).
+ *
+ * Other staff accounts (Admin, Ministry ...) keep their own numbering.
  */
 final class RegistrationNumber
 {
     public const SEQUENCE = 'registration_number_seq';
 
-    /** users.role_id => prefix code */
+    /** users.role_id => prefix code (artist / partner global sequence) */
     public const PREFIXES = [5 => 'AI', 6 => 'AG', 7 => 'AO', 11 => 'EP'];
 
-    /** Next ID for an account of this role, or null when the role has no OH- ID. */
+    /** Zonal Cultural Centre accounts: OH-ZCC-<users.id, 5 digits> */
+    public const ZCC_ROLE = 8;
+
+    /** ID for a saved user: OH-ZCC-<id> for ZCC accounts, else the next OH- ID of the role (null if none). */
+    public static function forUser(int $userId, int $roleId): ?string
+    {
+        return $roleId === self::ZCC_ROLE ? self::formatZcc($userId) : self::next($roleId);
+    }
+
+    /** Next ID for an account of this role, or null when the role has no OH- ID (ZCC: use forUser()). */
     public static function next(int $roleId): ?string
     {
         if (! isset(self::PREFIXES[$roleId])) {
@@ -37,6 +50,11 @@ final class RegistrationNumber
     public static function format(int $roleId, int $number): string
     {
         return sprintf('OH-%s-%05d', self::PREFIXES[$roleId], $number);
+    }
+
+    public static function formatZcc(int $userId): string
+    {
+        return sprintf('OH-ZCC-%05d', $userId);
     }
 
     /** Role for the type names / letters used by the older registration code. */

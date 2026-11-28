@@ -139,6 +139,14 @@ body { background: var(--oh-page); }
 }
 .oh-bell:hover { background: rgba(0, 0, 0, 0.05); }
 .oh-divider { width: 1px; height: 42px; background: var(--oh-line); }
+/* BHASHINI language picker slot (Topbar.tsx); the plugin injects its button here. */
+.oh-header-tools .bhashini-plugin-container { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; min-height: 42px; }
+/* The plugin's language button as a circle, like the avatar beside it (the plugin ships its own CSS, hence !important). */
+.oh-header-tools .bhashini-dropdown-btn { width: 42px !important; height: 42px !important; min-width: 42px; padding: 0 !important; border-radius: 50% !important; display: inline-grid !important; place-items: center; background: #fff7ee !important; border: 1px solid #ead7bb !important; box-shadow: 0 2px 6px rgba(124, 29, 62, .08); cursor: pointer; transition: background .15s, box-shadow .15s, transform .15s; }
+.oh-header-tools .bhashini-dropdown-btn:hover, .oh-header-tools .bhashini-dropdown-btn[aria-expanded="true"] { background: #fbeee0 !important; box-shadow: 0 0 0 3px rgba(124, 29, 62, .12); }
+.oh-header-tools .bhashini-dropdown-btn:focus-visible { outline: 2px solid #7c1d3e; outline-offset: 2px; }
+.oh-header-tools .bhashini-dropdown-btn-icon { display: grid; place-items: center; line-height: 0; }
+.oh-header-tools .bhashini-dropdown-btn svg { width: 24px !important; height: 24px !important; }
 .oh-user {
     display: flex;
     align-items: center;

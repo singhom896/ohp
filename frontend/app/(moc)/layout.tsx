@@ -3,6 +3,7 @@
 // Each root layout loads its own stylesheet; navigating between them does a
 // full page load, so backend.css never mixes with the console styles.
 import type { Metadata } from "next";
+import Script from "next/script";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "@/styles/backend.css";
 import BootstrapClient from "@/components/BootstrapClient";
@@ -24,6 +25,9 @@ export default function MocRootLayout({ children }: { children: React.ReactNode 
           <DashboardFooter />
         </AuthProvider>
         <BootstrapClient />
+        {/* BHASHINI Translation Plugin (see app/(site)/layout.tsx): fills the
+            .bhashini-plugin-container in DashboardHeader with the language picker. */}
+        <Script src="https://translation-plugin.bhashini.co.in/v3/website_translation_utility.js" strategy="lazyOnload" />
       </body>
     </html>
   );

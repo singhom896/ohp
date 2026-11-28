@@ -44,7 +44,7 @@ const EVENT_LABELS: Record<string, [string, string]> = {
   rejected: ["Rejected", "bi-x-circle"],
 };
 
-const APP_STATUS: Record<number, string> = { 0: "bg-warning text-dark", 1: "bg-success", 2: "bg-danger" };
+const APP_STATUS: Record<number, string> = { 0: "bg-warning text-dark", 1: "bg-success", 2: "bg-danger", 3: "bg-info text-dark" };
 
 export function RevisionBadge({ status }: { status: RevStatus }) {
   const [label, cls] = REV_STATUS[status] ?? [status, "bg-secondary"];
@@ -221,6 +221,7 @@ type Overview = {
   completion: number;
   mode: "direct" | "request";
   initial_rejection: string | null;
+  changes_requested?: string | null;
   pending: Summary | null;
   draft: Summary | null;
   rejected: Summary | null;
@@ -281,6 +282,16 @@ function OverviewBody({ d }: { d: Overview }) {
         </div>
       </section>
 
+      {d.verified_status === 3 && (
+        <div className="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+          <div className="flex-grow-1">
+            <b><i className="bi bi-pencil-square me-2" />Your Zonal Cultural Centre has requested changes.</b>
+            {d.changes_requested && <div className="mt-1">Remarks: {d.changes_requested}</div>}
+            <div className="small mt-1">Update your profile; it goes back for review when you save.</div>
+          </div>
+          <Link href="/artist/profile" className="border-btn rounded-2 py-1 px-3">Update profile</Link>
+        </div>
+      )}
       {d.initial_rejection && !d.pending && (
         <div className="alert alert-danger">
           <b><i className="bi bi-x-octagon me-2" />Your registration was not approved.</b>
@@ -294,10 +305,10 @@ function OverviewBody({ d }: { d: Overview }) {
         <Step done={d.profile_completed} icon="bi-ui-checks" title="Profile completed" text={d.profile_completed ? "All required details filled" : "Some required details are missing"} />
         <Step
           done={d.verified_status === 1}
-          warn={d.verified_status === 2}
-          icon={d.verified_status === 2 ? "bi-x-circle" : "bi-patch-check"}
-          title={d.verified_status === 1 ? "Approved" : d.verified_status === 2 ? "Rejected" : "Under review"}
-          text={d.verified_status === 1 ? "Your profile is live" : d.verified_status === 2 ? "Correct and resubmit" : "Awaiting ZCC / Admin review"}
+          warn={d.verified_status === 2 || d.verified_status === 3}
+          icon={d.verified_status === 2 ? "bi-x-circle" : d.verified_status === 3 ? "bi-pencil-square" : "bi-patch-check"}
+          title={d.verified_status === 1 ? "Approved" : d.verified_status === 2 ? "Rejected" : d.verified_status === 3 ? "Changes requested" : "Under review"}
+          text={d.verified_status === 1 ? "Your profile is live" : d.verified_status === 2 ? "Correct and resubmit" : d.verified_status === 3 ? "Update your profile" : "Awaiting ZCC / Admin review"}
         />
       </div>
 

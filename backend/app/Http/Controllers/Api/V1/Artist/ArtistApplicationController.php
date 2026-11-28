@@ -26,7 +26,7 @@ class ArtistApplicationController extends Controller
 {
     use ApiResponse, ConsoleScope;
 
-    private const STATUS_LABELS = [0 => 'Under Review', 1 => 'Approved', 2 => 'Rejected'];
+    private const STATUS_LABELS = [0 => 'Under Review', 1 => 'Approved', 2 => 'Rejected', 3 => 'Changes Requested'];
 
     public function __construct(
         private readonly ArtistProfileService $profiles,
@@ -62,6 +62,9 @@ class ArtistApplicationController extends Controller
             'completion'      => $this->profiles->completion($live),
             'mode'            => $approval ? 'request' : 'direct',
             'initial_rejection' => $this->revisions->initialRejection($user),
+            'changes_requested' => (int) $user->verified_status === 3
+                ? DB::table('artist_status_histories')->where('user_id', $user->id)->where('new_status', 3)->latest('id')->value('remarks')
+                : null,
             'pending'         => $pending ? $this->summary($pending) : null,
             'draft'           => $editable && $editable->status === Revision::STATUS_DRAFT ? $this->summary($editable) : null,
             'rejected'        => $editable && $editable->status === Revision::STATUS_REJECTED ? $this->summary($editable) : null,

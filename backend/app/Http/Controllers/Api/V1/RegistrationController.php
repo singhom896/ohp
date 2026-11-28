@@ -66,6 +66,10 @@ class RegistrationController extends Controller
         return $this->success([
             'organisation_types' => self::ORGANISATION_TYPES,
             'partner_types'      => \App\Models\EngagementPartnerProfile::TYPES,
+            // Location (same lists as My Profile / Organisation Profile).
+            'states'             => DB::table('states')->orderBy('StateName')->get(['id', 'StateName as name']),
+            'districts'          => DB::table('districts as d')->join('states as s', 's.StateCode', '=', 'd.StateCode')
+                ->orderBy('d.DistrictName')->get(['d.id', 's.id as state_id', 'd.DistrictName as name']),
             'policy_version'     => (string) config('app.policy_version'),
             'email_otp_enabled'  => self::enabled('email'),
             'mobile_otp_enabled' => self::enabled('mobile'),

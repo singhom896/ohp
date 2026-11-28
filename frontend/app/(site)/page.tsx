@@ -2,25 +2,31 @@ import { Suspense } from "react";
 import HomeBanners, { HomeBannersPlaceholder } from "@/components/home/HomeBanners";
 import {
   CategoryGrid,
+  CategoryGridPlaceholder,
   StatsStrip,
   OpportunityGrid,
   OpportunityGridPlaceholder,
   HowItWorks,
   GalleryGrid,
   GalleryPlaceholder,
-  TestimonialSection,
+  Testimonials,
+  ZccSection,
   CtaBand,
 } from "@/components/home/HomeSections";
-import { artistTestimonials, organizerTestimonials } from "@/lib/data/home";
+import { ScrollReveal } from "@/components/home/HomeClient";
 
 export default function HomePage() {
   return (
-    <main id="main-content">
+    <main id="main-content" className="home">
       <Suspense fallback={<HomeBannersPlaceholder />}>
         <HomeBanners />
       </Suspense>
-      <CategoryGrid />
-      <StatsStrip />
+      <Suspense fallback={<CategoryGridPlaceholder />}>
+        <CategoryGrid />
+      </Suspense>
+      <Suspense fallback={null}>
+        <StatsStrip />
+      </Suspense>
       <Suspense fallback={<OpportunityGridPlaceholder />}>
         <OpportunityGrid />
       </Suspense>
@@ -28,18 +34,12 @@ export default function HomePage() {
       <Suspense fallback={<GalleryPlaceholder />}>
         <GalleryGrid />
       </Suspense>
-      <TestimonialSection
-        eyebrow="Voices from the community"
-        title="What Artists Say"
-        intro="Real experiences from artists using Opportunity Hub to discover and grow their opportunities."
-        items={artistTestimonials}
-      />
-      <TestimonialSection
-        title="What Organizers Say"
-        intro="How hotels, institutions and programme coordinators use the platform to find verified talent."
-        items={organizerTestimonials}
-      />
+      <Testimonials />
+      <Suspense fallback={null}>
+        <ZccSection />
+      </Suspense>
       <CtaBand />
+      <ScrollReveal />
     </main>
   );
 }

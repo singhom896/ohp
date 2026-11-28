@@ -50,7 +50,7 @@ if (! function_exists('generateRegistrationNumber')) {
     {
         $roleId ??= (int) \Illuminate\Support\Facades\DB::table('users')->where('id', $userId)->value('role_id');
 
-        return \App\Support\RegistrationNumber::next($roleId)
+        return \App\Support\RegistrationNumber::forUser($userId, $roleId)
             ?? 'REG' . now()->timestamp . '-' . str_pad((string) $userId, 6, '0', STR_PAD_LEFT);
     }
 }

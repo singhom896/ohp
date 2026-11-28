@@ -4,6 +4,7 @@
 #.env
 .env.*
 !.env.example
+/OHP Changes/
 
 # Dependencies and build output
 node_modules/

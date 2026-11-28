@@ -470,10 +470,13 @@ class ArtistProfileService
         $year = (int) now()->year;
         $stateCode = DB::table('states')->where('id', $request->integer('state_id'))->value('StateCode');
         $topArtForm = Rule::exists('art_forms', 'id')->where('country_id', self::INDIA)->where('status', 1)->where('parent_id', 0);
-        $optionalPlace = $type === 'individual' ? 'nullable' : 'required';
+        $optionalPlace = 'required'; // City / Town / Village and PIN Code: required for every type (also at registration)
 
         $rules = [
-            'mobile'      => ['required', 'regex:/^[6-9][0-9]{9}$/', Rule::unique('users', 'mobile')->ignore($user->id)],
+            // A verified mobile number is locked (it is a login identifier).
+            'mobile'      => $user->mobile_verified_at && $user->mobile
+                ? ['required', Rule::in([(string) $user->mobile])]
+                : ['required', 'regex:/^[6-9][0-9]{9}$/', Rule::unique('users', 'mobile')->ignore($user->id)],
             'state_id'    => ['required', 'integer', Rule::exists('states', 'id')],
             'district_id' => ['required', 'integer', Rule::exists('districts', 'id')->where('StateCode', $stateCode ?? -1)],
             'city'        => [$optionalPlace, 'string', 'max:100', 'regex:'.self::PLACE_REGEX],
@@ -499,6 +502,7 @@ class ArtistProfileService
         $messages = [
             'mobile.regex'          => 'Enter a valid 10-digit Indian mobile number.',
             'mobile.unique'         => 'This mobile number is already registered with another account.',
+            'mobile.in'             => 'Your mobile number is verified and cannot be changed.',
             'pincode.regex'         => 'Enter a valid 6-digit PIN code.',
             'district_id.exists'    => 'Select a district of the selected State / UT.',
             'portfolio_links.*.url' => 'Each link must be a valid https:// address.',
@@ -791,6 +795,8 @@ class ArtistProfileService
             'lastname'    => Str::contains($name, ' ') ? Str::after($name, ' ') : null,
             'mobile'      => $v['mobile'],
             'state'       => (int) $v['state_id'] ?: null,
+            // Same State in art_regions (older Artist Management screens / ZCC fallback).
+            'region_id'   => \App\Support\ZccScope::regionForState((int) $v['state_id'] ?: null) ?? $user->region_id,
             'district'    => (int) $v['district_id'] ?: null,
             'city'        => $blank($v['city'] ?? null),
             'pincode'     => $blank($v['pincode'] ?? null),

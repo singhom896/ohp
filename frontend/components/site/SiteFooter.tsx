@@ -115,7 +115,7 @@ export default function SiteFooter() {
 
             <div className="newsletter">
               <h4 className="footer-heading">Stay in the Loop</h4>
-              <p>Fresh opportunities in your inbox, every week.</p>
+              <p>Subscribe for official Opportunity Hub updates and cultural events</p>
               <NewsletterForm />
             </div>
           </div>

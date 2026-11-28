@@ -97,8 +97,9 @@ class MasterDataController extends Controller
         ],
     ];
 
-    public function index(Request $request, string $resource): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $resource = $this->resource($request);
         $cfg = $this->config($resource);
         $t = $cfg['table'];
 
@@ -129,28 +130,30 @@ class MasterDataController extends Controller
         ]);
     }
 
-    public function show(string $resource, int $id): JsonResponse
+    public function show(Request $request): JsonResponse
     {
-        $cfg = $this->config($resource);
+        $id = $this->routeId($request);
+        $cfg = $this->config($this->resource($request));
         $row = $this->scoped($cfg['table'])->where('id', $id)->first();
         abort_unless($row, 404, "{$cfg['label']} not found.");
 
         return $this->success(['item' => $row]);
     }
 
-    public function store(Request $request, string $resource): JsonResponse
+    public function store(Request $request): JsonResponse
     {
-        return $this->save($request, $resource, null);
+        return $this->save($request, $this->resource($request), null);
     }
 
-    public function update(Request $request, string $resource, int $id): JsonResponse
+    public function update(Request $request): JsonResponse
     {
-        return $this->save($request, $resource, $id);
+        return $this->save($request, $this->resource($request), $this->routeId($request));
     }
 
-    public function status(Request $request, string $resource, int $id): JsonResponse
+    public function status(Request $request): JsonResponse
     {
-        $cfg = $this->config($resource);
+        $id = $this->routeId($request);
+        $cfg = $this->config($this->resource($request));
         $data = $request->validate(['status' => ['required', 'in:0,1']]);
 
         $query = $this->scoped($cfg['table'])->where('id', $id);
@@ -235,6 +238,23 @@ class MasterDataController extends Controller
             $this->isNodal(),
             fn (Builder $q) => $q->where('country_id', $this->requireNodalCountry())
         );
+    }
+
+    /**
+     * Route parameters are read by NAME: the slug is a route default that Laravel
+     * appends after {id}, so positional controller arguments would be (id, slug).
+     */
+    private function resource(Request $request): string
+    {
+        return (string) $request->route('resource');
+    }
+
+    private function routeId(Request $request): int
+    {
+        $id = $request->route('id');
+        abort_unless(is_numeric($id) && (int) $id > 0, 404, 'Record not found.');
+
+        return (int) $id;
     }
 
     private function config(string $resource): array

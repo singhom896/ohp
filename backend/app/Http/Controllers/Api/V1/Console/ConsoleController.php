@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Country;
 use App\Models\Module;
 use App\Models\User;
+use App\Support\ZccScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -103,9 +104,12 @@ class ConsoleController extends Controller
             $country = Country::query()->findOrFail($user->country_id);
         }
 
+        // ZCC officials: artists of their member States / UTs (not country-wide).
+        $isZcc = ZccScope::isZcc($user);
         $artists = User::query()
             ->whereIn('role_id', [5, 6, 7])
-            ->when($country, fn ($q) => $q->where('country_id', $country->id));
+            ->when($isZcc, fn ($q) => ZccScope::apply($q, 'users', $user))
+            ->when($country && ! $isZcc, fn ($q) => $q->where('country_id', $country->id));
 
         // "Your modules": leaf modules of the sidebar, same as the Blade dashboard.
         $modules = collect($this->menuData($user)['menu'])
@@ -123,6 +127,7 @@ class ConsoleController extends Controller
             'is_artist_role'  => $isArtistRole,
             'country'         => $country ? ['id' => $country->id, 'name' => $country->name] : null,
             'modules'         => $modules,
+            'zcc'             => $isZcc ? $this->zccSummary($user) : null,
         ];
 
         // Artist and Engagement Partner accounts see only their own workspace,
@@ -153,6 +158,7 @@ class ConsoleController extends Controller
                 'pending'         => (clone $artists)->where('verified_status', 0)->count(),
                 'approved'        => $approved,
                 'rejected'        => (clone $artists)->where('verified_status', 2)->count(),
+                'changes_requested' => (clone $artists)->where('verified_status', 3)->count(),
                 'approval_rate'   => $total ? round($approved / $total * 100, 1) : null,
                 'total_change'    => $change($artists),
                 'events'          => (clone $events)->count(),
@@ -165,7 +171,7 @@ class ConsoleController extends Controller
                 'institution' => (int) ($byType[7] ?? 0),
             ],
             'trend'           => $this->registrationTrend($artists),
-            'recent_activity' => $this->recentActivity($country?->id),
+            'recent_activity' => $this->recentActivity($isZcc ? null : $country?->id, $isZcc ? $user : null),
             'upcoming_events' => $this->can('/event', 'view') ? $this->upcomingEvents($events) : null,
         ]);
     }
@@ -196,7 +202,41 @@ class ConsoleController extends Controller
     }
 
     /** Latest approvals / rejections, new registrations and new events, newest first. */
-    private function recentActivity(?int $countryId): array
+    /** The signed-in official's ZCC, member States / UTs and review queue. */
+    private function zccSummary(User $user): array
+    {
+        $zcc = ZccScope::centre($user);
+        if (! $zcc) {
+            return ['linked' => false];
+        }
+
+        $states = DB::table('zcc_states as z')->join('states as s', 's.id', '=', 'z.state_id')
+            ->where('z.zcc_id', $zcc->id)->orderBy('s.StateName')->pluck('s.StateName');
+
+        // Pending registrations that are ready for review (profile details submitted).
+        $queue = ZccScope::apply(DB::table('users as u'), 'u', $user)
+            ->whereIn('u.role_id', [5, 6, 7])->where('u.verified_status', 0)
+            ->where(fn ($w) => $w->whereExists(fn ($q) => $q->from('artist_registrations')->whereColumn('user_id', 'u.id'))
+                ->orWhereExists(fn ($q) => $q->from('artist_group_details')->whereColumn('user_id', 'u.id'))
+                ->orWhereExists(fn ($q) => $q->from('artist_institution_details')->whereColumn('user_id', 'u.id')))
+            ->count();
+
+        $updates = ZccScope::apply(DB::table('artist_profile_revisions as r')->join('users as u', 'u.id', '=', 'r.user_id'), 'u', $user)
+            ->where('r.status', 'submitted')->count();
+
+        return [
+            'linked'          => true,
+            'code'            => $zcc->code,
+            'name'            => $zcc->name,
+            'headquarters'    => $zcc->headquarters,
+            'contact_person'  => $zcc->contact_person,
+            'states'          => $states,
+            'pending_review'  => $queue,
+            'pending_updates' => $updates,
+        ];
+    }
+
+    private function recentActivity(?int $countryId, ?User $zccViewer = null): array
     {
         $types = [5 => 'Individual Artist', 6 => 'Artist Group', 7 => 'Organisation'];
 
@@ -204,6 +244,7 @@ class ConsoleController extends Controller
             ->join('users as u', 'u.id', '=', 'h.user_id')
             ->leftJoin('users as by', 'by.id', '=', 'h.created_by')
             ->when($countryId, fn ($q) => $q->where('u.country_id', $countryId))
+            ->when($zccViewer, fn ($q) => ZccScope::apply($q, 'u', $zccViewer))
             ->whereIn('h.new_status', [1, 2])
             ->orderByDesc('h.created_at')->limit(6)
             ->get(['h.new_status', 'h.created_at', 'u.full_name', 'u.regno', 'by.full_name as by_name'])
@@ -218,6 +259,7 @@ class ConsoleController extends Controller
         $registrations = DB::table('users')
             ->whereIn('role_id', array_keys($types))
             ->when($countryId, fn ($q) => $q->where('country_id', $countryId))
+            ->when($zccViewer, fn ($q) => ZccScope::apply($q, 'users', $zccViewer))
             ->orderByDesc('created_at')->limit(6)
             ->get(['role_id', 'full_name', 'regno', 'created_at'])
             ->map(fn ($r) => [
@@ -286,6 +328,9 @@ class ConsoleController extends Controller
                 'gender'      => $user->gender !== null ? (string) $user->gender : '',
                 'email'       => $user->email,
                 'mobile'      => $user->mobile,
+                // Verified email / mobile are shown read-only and cannot be changed.
+                'email_verified'  => (bool) ($user->email_verified_at && $user->email),
+                'mobile_verified' => (bool) ($user->mobile_verified_at && $user->mobile),
                 'designation' => $user->designation,
                 'department'  => $user->getAttribute('department'),
                 'country_id'  => $user->country_id,
@@ -297,7 +342,32 @@ class ConsoleController extends Controller
             'countries'      => $countries,
             'regions'        => $regions,
             'gender_options' => genderOptions(),
+            // ZCC officials: no State / UT to choose; the page shows their centre and member States / UTs.
+            'zcc'            => ZccScope::isZcc($user) ? $this->zccProfile($user) : null,
         ]);
+    }
+
+    /** The ZCC official's centre details for the profile page. */
+    private function zccProfile(User $user): array
+    {
+        $zcc = ZccScope::centre($user);
+        if (! $zcc) {
+            return ['linked' => false];
+        }
+
+        return [
+            'linked'              => true,
+            'code'                => $zcc->code,
+            'name'                => $zcc->name,
+            'headquarters'        => $zcc->headquarters,
+            'contact_person'      => $zcc->contact_person,
+            'contact_designation' => $zcc->contact_designation,
+            'contact_mobile'      => $zcc->contact_mobile,
+            'contact_mobile_alt'  => $zcc->contact_mobile_alt,
+            'contact_email'       => $zcc->contact_email,
+            'states'              => DB::table('zcc_states as z')->join('states as s', 's.id', '=', 'z.state_id')
+                ->where('z.zcc_id', $zcc->id)->orderBy('s.StateName')->get(['s.StateName as name', 's.ShortName as short']),
+        ];
     }
 
     /** Same rules as Backend\UserController::updateProfile. */
@@ -309,8 +379,17 @@ class ConsoleController extends Controller
             'firstname'   => ['required', 'string', 'max:100', 'regex:/^[a-zA-Z\s]+$/'],
             'lastname'    => ['required', 'string', 'max:100', 'regex:/^[a-zA-Z\s]+$/'],
             'gender'      => ['required', Rule::in(array_keys(genderOptions()))],
-            'email'       => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'mobile'      => ['required', 'digits:10'],
+            // A verified email / mobile is locked: it can be re-sent unchanged only.
+            'email'       => $user->email_verified_at && $user->email
+                ? ['required', function ($attr, $value, $fail) use ($user) {
+                    if (mb_strtolower(trim((string) $value)) !== mb_strtolower((string) $user->email)) {
+                        $fail('Your email address is verified and cannot be changed.');
+                    }
+                }]
+                : ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'mobile'      => $user->mobile_verified_at && $user->mobile
+                ? ['required', Rule::in([(string) $user->mobile])]
+                : ['required', 'digits:10'],
             'designation' => ['nullable', 'string', 'max:255'],
             'region_id'   => ['nullable', 'integer', Rule::exists('art_regions', 'id')
                 ->where('country_id', $user->country_id)->where('status', 1)],
@@ -328,6 +407,7 @@ class ConsoleController extends Controller
             'email.unique'       => 'This Email is already registered',
             'mobile.required'    => 'Enter Mobile Number',
             'mobile.digits'      => 'Mobile number must be exactly 10 digits',
+            'mobile.in'          => 'Your mobile number is verified and cannot be changed.',
             'region_id.exists'   => 'Please select a valid region for your country',
             'city.required'      => 'Please enter City / Town',
         ]);
@@ -341,10 +421,11 @@ class ConsoleController extends Controller
             'lastname'    => $last,
             'full_name'   => trim("$first $last"),
             'gender'      => $data['gender'],
-            'email'       => trim($data['email']),
-            'mobile'      => $data['mobile'],
+            'email'       => $user->email_verified_at && $user->email ? $user->email : trim($data['email']),
+            'mobile'      => $user->mobile_verified_at && $user->mobile ? $user->mobile : $data['mobile'],
             'designation' => $data['designation'] ?? null,
-            'region_id'   => $data['region_id'] ?? null,
+            // ZCC officials do not choose a State / UT (their zone is the ZCC's member States).
+            'region_id'   => ZccScope::isZcc($user) ? $user->region_id : ($data['region_id'] ?? null),
             'city'        => trim($data['city']),
             'pincode'     => $data['pincode'] ?? null,
             'address'     => $data['address'] ?? null,

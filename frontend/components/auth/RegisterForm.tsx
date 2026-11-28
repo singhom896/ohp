@@ -32,8 +32,13 @@ type Values = {
   email: string;
   password: string;
   password_confirmation: string;
+  // Location (same fields as My Profile / Organisation Profile): maps the account to its ZCC.
+  state_id: string;
+  district_id: string;
+  city: string;
+  pincode: string;
+  // One checkbox accepts the Terms & Conditions and acknowledges the Privacy Policy.
   terms: boolean;
-  privacy: boolean;
   captcha: string;
 };
 type Field = keyof Values | "email_otp" | "mobile_otp";
@@ -42,12 +47,22 @@ type Field = keyof Values | "email_otp" | "mobile_otp";
 type Otp = { emailOn: boolean; mobileOn: boolean; emailToken: string; mobileToken: string };
 type Errors = Partial<Record<Field, string>>;
 
-type Options = { organisation_types: string[]; partner_types: string[]; email_otp_enabled: boolean; mobile_otp_enabled: boolean };
+type IdName = { id: number; name: string };
+type Options = {
+  organisation_types: string[];
+  partner_types: string[];
+  states: IdName[];
+  districts: (IdName & { state_id: number })[];
+  email_otp_enabled: boolean;
+  mobile_otp_enabled: boolean;
+};
 
 const EMPTY: Values = {
   group_name: "", organisation_name: "", organisation_type: "", partner_type: "", address: "", first_name: "", last_name: "", designation: "",
-  mobile: "", email: "", password: "", password_confirmation: "", terms: false, privacy: false, captcha: "",
+  mobile: "", email: "", password: "", password_confirmation: "", state_id: "", district_id: "", city: "", pincode: "", terms: false, captcha: "",
 };
+
+const PLACE = /^[\p{L}\p{M}\p{N}\s.,'()/-]+$/u;
 
 /** Artist / Group path: three sub-categories. */
 const accountTypes: { id: AccountType; icon: string; title: string; desc: string }[] = [
@@ -72,6 +87,7 @@ const SERVER_FIELDS: Record<string, Field> = {
   mobile_otp: "mobile_otp",
   captcha_key: "captcha",
   account_type: "first_name",
+  privacy: "terms",
 };
 
 const PERSON = /^[\p{L}\p{M}\s.'-]+$/u;
@@ -120,29 +136,34 @@ function validate(type: AccountType, v: Values, otp: Otp): Errors {
   else if (email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) e.email = "Please enter a valid email address.";
   else if (otp.emailOn && !otp.emailToken) e.email_otp = "Please verify your email address with the OTP.";
 
+  if (!v.state_id) e.state_id = "Please select the State / UT.";
+  if (!v.district_id) e.district_id = v.state_id ? "Please select the district." : "Please select the State / UT first.";
+  const city = squash(v.city);
+  if (!city) e.city = type === "artist" ? "Please enter the city / town / village." : "Please enter the city / town.";
+  else if (city && (city.length > 100 || !PLACE.test(city))) e.city = "Please enter a valid city / town (max 100 characters).";
+  const pin = v.pincode.trim();
+  if (!pin) e.pincode = "Please enter the PIN code.";
+  else if (pin && !/^[1-9][0-9]{5}$/.test(pin)) e.pincode = "Please enter a valid 6-digit PIN code.";
+
   if (!v.password) e.password = "Please enter a password.";
   else if (v.password.length < 8 || !/[A-Za-z]/.test(v.password) || !/[0-9]/.test(v.password))
     e.password = "Password must be at least 8 characters and contain both letters and numbers.";
   if (!v.password_confirmation) e.password_confirmation = "Please confirm the password.";
   else if (v.password_confirmation !== v.password) e.password_confirmation = "Password and Confirm Password must match.";
 
-  if (type === "artist") {
-    if (!v.terms) e.terms = "Please accept the Terms & Conditions.";
-    if (!v.privacy) e.privacy = "Please acknowledge the Privacy Policy.";
-  } else if (!v.terms) {
-    e.terms = "Please accept the Terms & Conditions and Privacy Policy.";
-  }
+  if (!v.terms) e.terms = "Please accept the Terms & Conditions and acknowledge the Privacy Policy.";
 
   if (!v.captcha.trim()) e.captcha = "Please enter the CAPTCHA code.";
   return e;
 }
 
 /** Field order per account type (spec order), for focusing the first error. */
+const LOCATION: Field[] = ["state_id", "district_id", "city", "pincode"];
 const ORDER: Record<AccountType, Field[]> = {
-  artist: ["first_name", "last_name", "mobile", "mobile_otp", "email", "email_otp", "password", "password_confirmation", "terms", "privacy", "captcha"],
-  group: ["group_name", "first_name", "last_name", "mobile", "mobile_otp", "email", "email_otp", "password", "password_confirmation", "terms", "captcha"],
-  organisation: ["organisation_name", "organisation_type", "first_name", "last_name", "designation", "email", "email_otp", "mobile", "mobile_otp", "password", "password_confirmation", "terms", "captcha"],
-  partner: ["organisation_name", "partner_type", "first_name", "last_name", "designation", "mobile", "mobile_otp", "email", "email_otp", "address", "password", "password_confirmation", "terms", "captcha"],
+  artist: ["first_name", "last_name", "mobile", "mobile_otp", "email", "email_otp", ...LOCATION, "password", "password_confirmation", "captcha", "terms"],
+  group: ["group_name", "first_name", "last_name", "mobile", "mobile_otp", "email", "email_otp", ...LOCATION, "password", "password_confirmation", "captcha", "terms"],
+  organisation: ["organisation_name", "organisation_type", "first_name", "last_name", "designation", "email", "email_otp", "mobile", "mobile_otp", ...LOCATION, "password", "password_confirmation", "captcha", "terms"],
+  partner: ["organisation_name", "partner_type", "first_name", "last_name", "designation", "mobile", "mobile_otp", "email", "email_otp", "address", ...LOCATION, "password", "password_confirmation", "captcha", "terms"],
 };
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -235,9 +256,13 @@ export default function RegisterForm({ path = "artist", onChangePath }: { path?:
         mobile_otp_token: otp.mobileOn ? mobileToken : undefined,
         password: values.password,
         password_confirmation: values.password_confirmation,
-        // Group / Organisation / Partner accept both with one checkbox (per spec).
+        state_id: values.state_id,
+        district_id: values.district_id,
+        city: squash(values.city) || undefined,
+        pincode: values.pincode.trim() || undefined,
+        // One checkbox accepts the Terms & Conditions and acknowledges the Privacy Policy.
         terms: values.terms,
-        privacy: accountType === "artist" ? values.privacy : values.terms,
+        privacy: values.terms,
         captcha: values.captcha.trim(),
         captcha_key: captcha.key,
       };
@@ -387,16 +412,87 @@ export default function RegisterForm({ path = "artist", onChangePath }: { path?:
     </>
   );
 
+  // Location: same State / UT, District, City and PIN fields as the profile pages.
+  const districts = (options?.districts ?? []).filter((d) => String(d.state_id) === values.state_id);
+
+  const locationFields = (
+    <>
+      <div className="field">
+        <label htmlFor="state_id">
+          State / Union Territory <span className="req">*</span>
+        </label>
+        <select
+          id="state_id"
+          name="state_id"
+          value={values.state_id}
+          onChange={(e) => {
+            const next = { ...values, state_id: e.target.value, district_id: "" };
+            setValues(next);
+            if (submitted) setFieldErrors(validate(accountType, next, otp));
+          }}
+          {...inputProps("state_id")}
+        >
+          <option value="">Select State / UT</option>
+          {(options?.states ?? []).map((s) => (
+            <option key={s.id} value={String(s.id)}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <FieldError id="state_id" message={err.state_id} />
+      </div>
+      <div className="field">
+        <label htmlFor="district_id">
+          District <span className="req">*</span>
+        </label>
+        <select id="district_id" name="district_id" value={values.district_id} disabled={!values.state_id} onChange={(e) => change("district_id", e.target.value)} {...inputProps("district_id")}>
+          <option value="">{values.state_id ? "Select District" : "Select State / UT first"}</option>
+          {districts.map((d) => (
+            <option key={d.id} value={String(d.id)}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        <FieldError id="district_id" message={err.district_id} />
+      </div>
+      <div className="field">
+        <label htmlFor="city">
+          {accountType === "artist" ? "City / Town / Village" : "City / Town"} <span className="req">*</span>
+        </label>
+        <input id="city" name="city" type="text" maxLength={100} autoComplete="address-level2" placeholder="Enter city / town" value={values.city} onChange={(e) => change("city", e.target.value)} {...inputProps("city")} />
+        <FieldError id="city" message={err.city} />
+      </div>
+      <div className="field">
+        <label htmlFor="pincode">
+          PIN Code <span className="req">*</span>
+        </label>
+        <input
+          id="pincode"
+          name="pincode"
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          autoComplete="postal-code"
+          placeholder="6-digit PIN code"
+          value={values.pincode}
+          onChange={(e) => change("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))}
+          {...inputProps("pincode")}
+        />
+        <FieldError id="pincode" message={err.pincode} />
+      </div>
+    </>
+  );
+
   const isPartner = path === "partner";
 
   return (
     <>
       <div className="intro">
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div className="kicker">{isPartner ? "ENGAGEMENT PARTNER REGISTRATION" : "ARTIST / GROUP REGISTRATION"}</div>
+          <div className="kicker">{isPartner ? "ENGAGEMENT PARTNER REGISTRATION" : "ARTIST / GROUP / ORGANISATION REGISTRATION"}</div>
           {onChangePath && (
             <button type="button" className="reg-switch" onClick={onChangePath}>
-              ← Register as {isPartner ? "Artist / Group" : "Engagement Partner"} instead
+              ← Register as {isPartner ? "Artist / Group / Organisation" : "Engagement Partner"} instead
             </button>
           )}
         </div>
@@ -438,7 +534,7 @@ export default function RegisterForm({ path = "artist", onChangePath }: { path?:
         <div className="notice">
           <strong>Only basic registration is required now.</strong>{" "}
           {isPartner
-            ? "Your organisation profile, address and supporting documents are completed after login from your dashboard."
+            ? "Your organisation profile and supporting documents are completed after login from your dashboard."
             : "Detailed profile information, documents, experience and portfolio are completed after login from your dashboard."}{" "}
           Registration on Opportunity Hub is free; there is no fee or payment.
         </div>
@@ -525,41 +621,20 @@ export default function RegisterForm({ path = "artist", onChangePath }: { path?:
               </>
             )}
 
+            {locationFields}
             {passwordFields}
             <CaptchaField captcha={captcha} value={values.captcha} onChange={(v) => change("captcha", v)} error={err.captcha} />
           </div>
 
-          {accountType === "artist" ? (
-            <>
-              <label className="terms">
-                <input id="terms" name="terms" type="checkbox" checked={values.terms} onChange={(e) => change("terms", e.target.checked)} {...inputProps("terms")} />
-                <span>
-                  I accept the{" "}
-                  <Link href="/content/terms-conditions" target="_blank">Terms &amp; Conditions</Link>. <span className="req">*</span>
-                </span>
-              </label>
-              <FieldError id="terms" message={err.terms} />
-              <label className="terms">
-                <input id="privacy" name="privacy" type="checkbox" checked={values.privacy} onChange={(e) => change("privacy", e.target.checked)} {...inputProps("privacy")} />
-                <span>
-                  I have read and acknowledge the{" "}
-                  <Link href="/content/privacy-policy" target="_blank">Privacy Policy</Link>. <span className="req">*</span>
-                </span>
-              </label>
-              <FieldError id="privacy" message={err.privacy} />
-            </>
-          ) : (
-            <>
-              <label className="terms">
-                <input id="terms" name="terms" type="checkbox" checked={values.terms} onChange={(e) => change("terms", e.target.checked)} {...inputProps("terms")} />
-                <span>
-                  I accept the <Link href="/content/terms-conditions" target="_blank">Terms &amp; Conditions</Link> and the{" "}
-                  <Link href="/content/privacy-policy" target="_blank">Privacy Policy</Link>. <span className="req">*</span>
-                </span>
-              </label>
-              <FieldError id="terms" message={err.terms} />
-            </>
-          )}
+          {/* One checkbox for every account type: Terms & Conditions + Privacy Policy. */}
+          <label className="terms">
+            <input id="terms" name="terms" type="checkbox" checked={values.terms} onChange={(e) => change("terms", e.target.checked)} {...inputProps("terms")} />
+            <span>
+              I accept the <Link href="/content/terms-conditions" target="_blank">Terms &amp; Conditions</Link> and acknowledge the{" "}
+              <Link href="/content/privacy-policy" target="_blank">Privacy Policy</Link>. <span className="req">*</span>
+            </span>
+          </label>
+          <FieldError id="terms" message={err.terms} />
 
           <div className="bottom">
             <div className="helper">Detailed information will be requested after login.</div>

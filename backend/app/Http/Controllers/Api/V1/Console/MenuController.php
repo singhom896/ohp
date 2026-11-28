@@ -103,42 +103,110 @@ class MenuController extends Controller
         return $this->success(null, 'Menu deleted successfully.');
     }
 
-    /** Active top-level menus with active children, for the sorting screen. */
-    public function tree(): JsonResponse
-    {
-        $menus = MenuItem::where('active', 1)
-            ->where(fn ($q) => $q->where('parent_id', 0)->orWhereNull('parent_id'))
-            ->with('children')
-            ->orderBy('order_index')
-            ->get()
-            ->map(fn (MenuItem $m) => $this->present($m) + [
-                'children' => $m->children->map(fn (MenuItem $c) => $this->present($c))->values()->all(),
-            ]);
+    /** menu => [flag column, order column]. Main Menu: order_index; Footer Menu: its own footer_order. */
+    private const MENUS = ['main' => ['is_main', 'order_index'], 'footer' => ['is_footer', 'footer_order']];
 
-        return $this->success(['items' => $menus]);
+    /**
+     * GET /menus/tree?menu=main|footer
+     * One menu as the public site builds it (top level + one level of children),
+     * including inactive items (shown greyed out on the ordering screen).
+     * Children whose parent is not in this menu never show on the site, so they
+     * are left out here too (they are counted in `hidden`).
+     */
+    public function tree(Request $request): JsonResponse
+    {
+        $menu = $request->validate(['menu' => ['nullable', Rule::in(array_keys(self::MENUS))]])['menu'] ?? 'main';
+        [$items, $hidden] = $this->menuItems($menu);
+
+        $node = fn (MenuItem $m) => [
+            'id' => $m->id, 'title' => $m->title, 'url' => $m->url, 'active' => (bool) $m->active,
+            'page_type_label' => $m->page_type_label, 'menu_type_label' => $m->menu_type_label,
+        ];
+        $children = $items->filter(fn ($m) => ! $this->isTop($m))->groupBy('parent_id');
+
+        return $this->success([
+            'menu'   => $menu,
+            'items'  => $items->filter(fn ($m) => $this->isTop($m))->values()->map(fn (MenuItem $m) => $node($m) + [
+                'children' => ($children->get($m->id) ?? collect())->values()->map($node)->all(),
+            ]),
+            'hidden' => $hidden,
+        ]);
     }
 
     /**
-     * Body: { menus: [{ id }] } in the new order. order_index is globally
-     * unique, so it is renumbered 1..n via temporary values (as the Blade panel does).
+     * POST /menus/reorder
+     * Body: { menu: "main"|"footer", items: [{ id, children: [id, ...] }, ...] }
+     * in the new order. Items keep their parent (move a menu under another
+     * parent from its Edit form). The whole menu must be sent, exactly as on
+     * the server, so a stale screen cannot scramble the order.
+     *   Main Menu   -> order_index 1..n (menus not in the Main Menu follow after,
+     *                  so the "Order" values stay unique)
+     *   Footer Menu -> footer_order 1..n
      */
     public function reorder(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'menus'      => ['required', 'array'],
-            'menus.*.id' => ['required', 'integer', 'exists:menu_items,id'],
+            'menu'               => ['required', Rule::in(array_keys(self::MENUS))],
+            'items'              => ['required', 'array'],
+            'items.*.id'         => ['required', 'integer'],
+            'items.*.children'   => ['nullable', 'array'],
+            'items.*.children.*' => ['integer'],
         ]);
+        $menu = $data['menu'];
+        [, $orderCol] = self::MENUS[$menu];
 
-        DB::transaction(function () use ($data) {
-            foreach ($data['menus'] as $m) {
-                MenuItem::where('id', $m['id'])->update(['order_index' => 100000 + $m['id']]);
+        DB::transaction(function () use ($data, $menu, $orderCol) {
+            [$items] = $this->menuItems($menu, true);
+            $byId = $items->keyBy('id');
+
+            // Flatten: parent, then its children; check it matches the menu on the server.
+            $flat = [];
+            foreach ($data['items'] as $top) {
+                $parent = $byId->get((int) $top['id']);
+                abort_unless($parent && $this->isTop($parent), 409, 'The menu has changed. Please reload the page and try again.');
+                $flat[] = $parent->id;
+                foreach ($top['children'] ?? [] as $childId) {
+                    $child = $byId->get((int) $childId);
+                    abort_unless($child && (int) $child->parent_id === $parent->id, 409, 'The menu has changed. Please reload the page and try again.');
+                    $flat[] = $child->id;
+                }
             }
-            foreach (array_values($data['menus']) as $i => $m) {
-                MenuItem::where('id', $m['id'])->update(['order_index' => $i + 1]);
+            abort_unless(count($flat) === count(array_unique($flat)) && count($flat) === $items->count(), 409,
+                'The menu has changed. Please reload the page and try again.');
+
+            foreach ($flat as $i => $id) {
+                MenuItem::whereKey($id)->update([$orderCol => $i + 1]);
+            }
+
+            // Main Menu: menus that are not in it continue after it (unique "Order").
+            if ($menu === 'main') {
+                $n = count($flat);
+                MenuItem::whereNotIn('id', $flat)->orderBy('order_index')->orderBy('id')->pluck('id')
+                    ->each(function ($id) use (&$n) {
+                        MenuItem::whereKey($id)->update(['order_index' => ++$n]);
+                    });
             }
         });
 
-        return $this->success(null, 'Menu order updated successfully.');
+        return $this->success(null, $menu === 'main' ? 'Main Menu order saved successfully.' : 'Footer Menu order saved successfully.');
+    }
+
+    /** [items of this menu in its order (top level + children whose parent is in it), number of hidden children]. */
+    private function menuItems(string $menu, bool $lock = false): array
+    {
+        [$flag, $orderCol] = self::MENUS[$menu];
+        $q = MenuItem::query()->where($flag, 1)
+            ->orderByRaw("COALESCE({$orderCol}, 100000 + order_index)")->orderBy('id');
+        $rows = ($lock ? $q->lockForUpdate() : $q)->get();
+        $tops = $rows->filter(fn ($m) => $this->isTop($m))->pluck('id')->all();
+        $kept = $rows->filter(fn ($m) => $this->isTop($m) || in_array((int) $m->parent_id, $tops, true))->values();
+
+        return [$kept, $rows->count() - $kept->count()];
+    }
+
+    private function isTop(MenuItem $m): bool
+    {
+        return ! $m->parent_id; // null or 0
     }
 
     private function save(Request $request, ?MenuItem $menu): JsonResponse
@@ -172,6 +240,11 @@ class MenuController extends Controller
             'is_footer'   => in_array($type, [2, 3], true),
         ];
 
+        // Newly in the Footer Menu: goes to the end of the footer order.
+        if ($values['is_footer'] && (! $menu || ! $menu->is_footer || $menu->footer_order === null)) {
+            $values['footer_order'] = (int) MenuItem::where('is_footer', 1)->max('footer_order') + 1;
+        }
+
         if ($menu) {
             $menu->update($values);
             return $this->success(['id' => $menu->id], 'Menu Item updated successfully!');
@@ -195,6 +268,7 @@ class MenuController extends Controller
             'page_type_label' => $m->page_type_label,
             'menu_type_label' => $m->menu_type_label,
             'order_index'     => (int) $m->order_index,
+            'footer_order'    => $m->footer_order === null ? null : (int) $m->footer_order,
             'status'          => (int) $m->active,
             'children_count'  => (int) ($m->children_count ?? 0),
             'created_by'      => $m->user?->full_name,

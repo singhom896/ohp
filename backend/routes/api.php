@@ -41,6 +41,7 @@ Route::prefix('v1')->group(function () {
         Route::get('media', 'media');
         Route::get('events', 'events');
         Route::get('events/{id}', 'event')->whereNumber('id');
+        Route::get('home', 'home');
         Route::get('artists', 'artists');
         Route::get('artists/{id}', 'artist')->whereNumber('id');
         Route::get('opportunities', 'opportunities');
@@ -221,6 +222,9 @@ Route::prefix('v1')->group(function () {
         });
 
         // ---- Data Management: country-scoped masters ----------------------
+        // The slug is passed as a route default ('resource'). Laravel hands route
+        // parameters to controllers positionally and appends defaults AFTER {id},
+        // so MasterDataController reads 'resource' and 'id' from the route by name.
         foreach (array_keys(Console\MasterDataController::RESOURCES) as $resource) {
             $perm = fn (string $action) => "api.permission:/{$resource},{$action}";
 

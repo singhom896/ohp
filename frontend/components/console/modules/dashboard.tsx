@@ -19,6 +19,12 @@ export type DashboardData = {
   is_nodal_agency: boolean;
   country: { id: number; name: string } | null;
   modules: { id: number; name: string; url: string; icon: string }[];
+  /** Zonal Cultural Centre officials (role 8): their ZCC, member States / UTs and review queue. */
+  zcc?: null | {
+    linked: boolean;
+    code?: string; name?: string; headquarters?: string; contact_person?: string | null;
+    states?: string[]; pending_review?: number; pending_updates?: number;
+  };
   stats: null | {
     total: number;
     pending: number;
@@ -62,6 +68,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
   return (
     <div className="oh-dash">
       <Welcome data={data} />
+      {data.zcc && <ZccPanel zcc={data.zcc} />}
       {data.stats ? <AdminDashboard data={data} /> : (
         <>
           {data.artist_summary && <ArtistSummary s={data.artist_summary} />}
@@ -72,7 +79,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
   );
 }
 
-const ACCOUNT_STATUS = ["Under Review", "Registered & Verified", "Not Approved"];
+const ACCOUNT_STATUS = ["Pending Approval", "Registered & Verified", "Not Approved", "Changes Requested"];
 
 /** Artist / Group / Organisation: registration, opportunities and performances at a glance. */
 function ArtistSummary({ s }: { s: NonNullable<DashboardData["artist_summary"]> }) {
@@ -124,8 +131,50 @@ function ArtistSummary({ s }: { s: NonNullable<DashboardData["artist_summary"]> 
   );
 }
 
+/** ZCC dashboard: the centre, its member States / UTs and what is waiting for review. */
+function ZccPanel({ zcc }: { zcc: NonNullable<DashboardData["zcc"]> }) {
+  const { href, can } = useConsole();
+  if (!zcc.linked) {
+    return (
+      <div className="alert alert-warning">
+        <i className="bi bi-exclamation-triangle me-2" aria-hidden="true" />
+        Your account is not linked to a Zonal Cultural Centre, so no artists are shown. Please contact the administrator.
+      </div>
+    );
+  }
+  const artists = can("/artist", "view") ? href("/artist") : null;
+  const updates = can("/profile-updates", "view") ? href("/profile-updates") : null;
+  return (
+    <section className="oh-card p-3 mb-3" aria-label="Zonal Cultural Centre">
+      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div>
+          <h2 className="h5 fw-bold mb-1"><i className="bi bi-bank me-2" aria-hidden="true" />{zcc.name} ({zcc.code}), {zcc.headquarters}</h2>
+          <div className="small text-muted mb-2">Member States / UTs whose artists you review and manage:</div>
+          <div className="d-flex flex-wrap gap-1">
+            {(zcc.states ?? []).map((s) => <span key={s} className="badge bg-light text-dark border">{s}</span>)}
+          </div>
+        </div>
+        <div className="d-flex flex-wrap gap-2">
+          {artists && (
+            <Link href={`${artists}?registration_status=0`} className="btn btn-warning">
+              <i className="bi bi-clipboard-check me-1" aria-hidden="true" />Registrations to review <span className="badge bg-dark ms-1">{fmt(zcc.pending_review ?? 0)}</span>
+            </Link>
+          )}
+          {updates && (
+            <Link href={updates} className="btn btn-outline-primary">
+              <i className="bi bi-arrow-repeat me-1" aria-hidden="true" />Profile update requests <span className="badge bg-primary ms-1">{fmt(zcc.pending_updates ?? 0)}</span>
+            </Link>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Welcome({ data }: { data: DashboardData }) {
-  const subtitle = data.is_nodal_agency
+  const subtitle = data.zcc?.linked
+    ? `${data.zcc.code} · review, approve and manage the artists of your member States / UTs.`
+    : data.is_nodal_agency
     ? "ZCC Nodal Officer · artist scrutiny, accreditation, events and engagement reports."
     : data.stats
       ? "Manage artists, engagement partners, events and content on the Opportunity Hub Portal."

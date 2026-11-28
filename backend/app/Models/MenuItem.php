@@ -12,6 +12,7 @@ class MenuItem extends Model
         'url',
         'parent_id',
         'order_index',
+        'footer_order', // Footer Menu has its own order (order_index = Main Menu)
         'is_main',
         'is_footer',
         'type',

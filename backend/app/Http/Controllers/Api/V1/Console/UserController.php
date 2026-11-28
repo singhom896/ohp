@@ -172,6 +172,10 @@ class UserController extends Controller
         ];
 
         if ($user) {
+            // Role changed to Zonal Cultural Centre: OH-ZCC-<user id, 5 digits>.
+            if ((int) $values['role_id'] === \App\Support\RegistrationNumber::ZCC_ROLE) {
+                $values['regno'] = \App\Support\RegistrationNumber::formatZcc((int) $user->id);
+            }
             $user->forceFill($values + ['updated_by' => Auth::id()])->save();
 
             return $this->success(['id' => $user->id], 'User updated successfully!');
@@ -189,6 +193,11 @@ class UserController extends Controller
                 'password'        => bcrypt(self::DEFAULT_PASSWORD),
                 'created_by'      => Auth::id(),
             ])->save();
+
+            // Zonal Cultural Centre accounts: OH-ZCC-<user id, 5 digits> (needs the saved id).
+            if ((int) $values['role_id'] === \App\Support\RegistrationNumber::ZCC_ROLE) {
+                $user->forceFill(['regno' => \App\Support\RegistrationNumber::formatZcc((int) $user->id)])->save();
+            }
 
             return $user;
         });

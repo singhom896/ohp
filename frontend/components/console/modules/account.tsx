@@ -12,11 +12,76 @@ import { GENDER_OPTIONS } from "../crud/common";
 import PageHeader, { Loader, SuccessBox } from "../ui/PageHeader";
 import { ErrorList, SelectInput, TextArea, TextInput, toOptions } from "../ui/fields";
 
+type ZccProfile = {
+  linked: boolean;
+  code?: string;
+  name?: string;
+  headquarters?: string;
+  contact_person?: string | null;
+  contact_designation?: string | null;
+  contact_mobile?: string | null;
+  contact_mobile_alt?: string | null;
+  contact_email?: string | null;
+  states?: { name: string; short: string | null }[];
+};
+
 type ProfileData = {
-  user: Record<string, string | number | null>;
+  user: Record<string, string | number | boolean | null>;
   countries: { id: number; name: string }[];
   regions: { id: number; name: string }[];
+  /** Zonal Cultural Centre officials only (role 8). */
+  zcc?: ZccProfile | null;
 };
+
+/** ZCC officials: their centre and every member State / UT (no State / UT to choose). */
+function ZccCard({ zcc }: { zcc: ZccProfile }) {
+  if (!zcc.linked) {
+    return (
+      <div className="alert alert-warning">
+        <i className="bi bi-exclamation-triangle me-2" aria-hidden="true" />
+        Your account is not linked to a Zonal Cultural Centre. Please contact the administrator.
+      </div>
+    );
+  }
+  const states = zcc.states ?? [];
+  const phones = [zcc.contact_mobile, zcc.contact_mobile_alt].filter(Boolean).join(" / ");
+  return (
+    <div className="form-box mb-3">
+      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div>
+          <div className="text-muted small text-uppercase fw-semibold">Zonal Cultural Centre</div>
+          <h2 className="h5 fw-bold mb-1">
+            <i className="bi bi-bank me-2" aria-hidden="true" />
+            {zcc.name} ({zcc.code})
+          </h2>
+          <div className="small">
+            <i className="bi bi-geo-alt me-1" aria-hidden="true" />Headquarters: <b>{zcc.headquarters}</b>
+          </div>
+        </div>
+        <div className="small text-lg-end">
+          {zcc.contact_person && (
+            <div><i className="bi bi-person-badge me-1" aria-hidden="true" />{zcc.contact_person}{zcc.contact_designation ? `, ${zcc.contact_designation}` : ""}</div>
+          )}
+          {phones && <div><i className="bi bi-telephone me-1" aria-hidden="true" />{phones}</div>}
+          {zcc.contact_email && <div><i className="bi bi-envelope me-1" aria-hidden="true" />{zcc.contact_email}</div>}
+        </div>
+      </div>
+      <hr className="my-3" />
+      <div className="fw-semibold mb-2">
+        Member States / UTs <span className="badge bg-secondary ms-1">{states.length}</span>
+      </div>
+      <div className="d-flex flex-wrap gap-2">
+        {states.map((s) => (
+          <span key={s.name} className="badge rounded-pill bg-light text-dark border px-3 py-2 fw-normal">
+            <i className="bi bi-geo-alt-fill me-1 text-danger" aria-hidden="true" />
+            {s.name}
+          </span>
+        ))}
+      </div>
+      <div className="small text-muted mt-2">You review and manage the artists registered in these States / UTs.</div>
+    </div>
+  );
+}
 
 function useSubmit() {
   const [busy, setBusy] = useState(false);
@@ -61,12 +126,15 @@ export function ProfilePage() {
   const v = values ?? loaded;
   const set = (k: string) => (val: string) => setValues({ ...v, [k]: val });
   const err = (k: string) => s.errors[k]?.[0];
+  const emailLocked = Boolean(data.user.email_verified);
+  const mobileLocked = Boolean(data.user.mobile_verified);
 
   return (
     <div className="container-fluid">
       <PageHeader title="Update Profile" />
       <SuccessBox message={s.done} onClose={() => s.setDone(null)} />
       <ErrorList errors={s.errors} message={s.message} />
+      {data.zcc && <ZccCard zcc={data.zcc} />}
 
       <form
         className="form-box"
@@ -85,7 +153,12 @@ export function ProfilePage() {
             <TextInput name="role" label="Role" icon="bi-person-gear" value={String(data.user.role ?? "—")} onChange={() => undefined} disabled className="bg-input-disabled" />
           </div>
           <div className="col-lg-3 mb-3">
-            <SelectInput name="region_id" label="State / UT" icon="bi-geo-alt" value={v.region_id} onChange={set("region_id")} options={toOptions(data.regions)} placeholder="Select State / UT" error={err("region_id")} />
+            {data.zcc ? (
+              // ZCC: the zone is the centre's member States / UTs (shown above), nothing to choose.
+              <TextInput name="zcc" label="Zonal Cultural Centre" icon="bi-bank" value={data.zcc.linked ? `${data.zcc.code} – ${data.zcc.headquarters}` : "Not linked"} onChange={() => undefined} disabled className="bg-input-disabled" />
+            ) : (
+              <SelectInput name="region_id" label="State / UT" icon="bi-geo-alt" value={v.region_id} onChange={set("region_id")} options={toOptions(data.regions)} placeholder="Select State / UT" error={err("region_id")} />
+            )}
           </div>
           <div className="col-lg-3 mb-3">
             <TextInput name="firstname" label="First Name" icon="bi-person" required value={v.firstname} onChange={set("firstname")} maxLength={100} error={err("firstname")} />
@@ -97,10 +170,19 @@ export function ProfilePage() {
             <SelectInput name="gender" label="Gender" icon="bi-gender-ambiguous" required value={v.gender} onChange={set("gender")} options={GENDER_OPTIONS} placeholder="Select Gender" error={err("gender")} />
           </div>
           <div className="col-lg-3 mb-3">
-            <TextInput name="email" label="Email" type="email" icon="bi-envelope" required value={v.email} onChange={set("email")} error={err("email")} />
+            {/* Verified email / mobile are read-only (the API rejects a change as well). */}
+            {emailLocked ? (
+              <TextInput name="email" label="Email" type="email" icon="bi-envelope-check" required value={v.email} onChange={() => undefined} disabled className="bg-input-disabled" error={err("email")} help="Verified — cannot be changed." />
+            ) : (
+              <TextInput name="email" label="Email" type="email" icon="bi-envelope" required value={v.email} onChange={set("email")} error={err("email")} />
+            )}
           </div>
           <div className="col-lg-3 mb-3">
-            <TextInput name="mobile" label="Mobile Number" icon="bi-telephone" required value={v.mobile} onChange={set("mobile")} maxLength={10} error={err("mobile")} />
+            {mobileLocked ? (
+              <TextInput name="mobile" label="Mobile Number" icon="bi-telephone" required value={v.mobile} onChange={() => undefined} disabled className="bg-input-disabled" error={err("mobile")} help="Verified — cannot be changed." />
+            ) : (
+              <TextInput name="mobile" label="Mobile Number" icon="bi-telephone" required value={v.mobile} onChange={set("mobile")} maxLength={10} error={err("mobile")} />
+            )}
           </div>
           <div className="col-lg-3 mb-3">
             <TextInput name="designation" label="Designation" icon="bi-briefcase" value={v.designation} onChange={set("designation")} maxLength={255} error={err("designation")} />

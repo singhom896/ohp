@@ -91,3 +91,19 @@ async function getFooterData(): Promise<FooterData> {
   const d = res.body.success ? res.body.data : {};
   return { items: d.items ?? [], links: d.links ?? [], last_updated: d.last_updated ?? null };
 }
+
+export type HomeData = {
+  stats: { artists: number; verified: number; opportunities: number; performances: number; partners: number; states: number };
+  categories: { id: number; name: string; artists: number }[];
+  zccs: { code: string; name: string; headquarters: string; states: string[] }[];
+};
+
+/** Live home page figures (GET /public/home, cached 5 min in Laravel too). Null when Laravel is down. */
+export async function getHomeData(): Promise<HomeData | null> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CMS_TAG);
+
+  const res = await backendFetch<HomeData>("/public/home");
+  return res.body.success ? res.body.data : null;
+}

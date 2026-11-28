@@ -2,7 +2,8 @@
 
 // Artist Management -> Artist Registration
 // List: backend/views/backend/artist/list.blade.php (server-side pagination, 15/page)
-// Preview: artist/preview.blade.php with Approve / Reject for pending registrations.
+// Preview: artist/preview.blade.php with Approve / Request Changes / Reject for pending registrations.
+// ZCC officials (role 8) only get the artists of their member States / UTs (API-side).
 /* eslint-disable @next/next/no-img-element -- uploads are served by the Laravel host */
 import Link from "next/link";
 import { useState } from "react";
@@ -17,13 +18,16 @@ import { confirmAction, failure, promptText, success } from "../ui/alerts";
 import { useFlash } from "../ui/flash";
 
 const TYPES = { individual: "Individual Artist", group: "Artist Group", institutional: "Institute / Organization" } as const;
-const STATUSES = { "0": "Pending", "1": "Approved", "2": "Rejected" } as const;
+/** users.verified_status (3 = returned to the artist by "Request Changes"). */
+const STATUSES = { "0": "Pending", "1": "Approved", "2": "Rejected", "3": "Changes Requested" } as const;
 
 function statusBadge(s: number | null) {
   const label = s === null ? "Not Tracked" : STATUSES[String(s) as keyof typeof STATUSES] ?? "Not Tracked";
-  const cls = s === 0 ? "bg-warning text-dark" : s === 1 ? "bg-success" : s === 2 ? "bg-danger" : "bg-secondary";
+  const cls = s === 0 ? "bg-warning text-dark" : s === 1 ? "bg-success" : s === 2 ? "bg-danger" : s === 3 ? "bg-info text-dark" : "bg-secondary";
   return <span className={`badge ${cls}`}>{label}</span>;
 }
+
+type ZccInfo = { code: string | null; name: string | null; headquarters: string | null; states: string[] } | null;
 
 type ArtistRow = {
   user_id: number;
@@ -33,10 +37,15 @@ type ArtistRow = {
   country_name: string | null;
   email: string | null;
   mobile: string | null;
+  region_name?: string | null;
   verified_status: number | null;
   submitted_at: string | null;
 };
-type ListData = { items: ArtistRow[]; meta: { current_page: number; last_page: number; total: number; from: number | null; to: number | null } };
+type ListData = {
+  items: ArtistRow[];
+  meta: { current_page: number; last_page: number; total: number; from: number | null; to: number | null };
+  zcc?: ZccInfo;
+};
 
 type Filters = { registration_type: string; registration_status: string; search: string };
 const EMPTY: Filters = { registration_type: "", registration_status: "", search: "" };
@@ -60,6 +69,19 @@ export function ArtistList() {
       <PageHeader title="Artist Registration Management" />
       <SuccessBox message={flash} onClose={clearFlash} />
       <ErrorBox message={error} />
+      {data?.zcc && (
+        <div className="alert alert-info d-flex flex-wrap gap-2 align-items-start">
+          <i className="bi bi-geo-alt-fill mt-1" aria-hidden="true" />
+          <div>
+            <b>{data.zcc.name ? `${data.zcc.name} (${data.zcc.code}), ${data.zcc.headquarters}` : "Your account is not linked to a Zonal Cultural Centre."}</b>
+            <div className="small">
+              {data.zcc.states.length
+                ? <>Showing artists of your member States / UTs: {data.zcc.states.join(", ")}.</>
+                : "Ask the administrator to link your account to a Zonal Cultural Centre to see its artists."}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="row mb-3">
         <div className="col-12">
@@ -130,6 +152,7 @@ export function ArtistList() {
                       <th style={{ width: "23%" }}>Registration Number / <br />Registration Type</th>
                       <th style={{ width: "20%" }}>Artist / Group / <br />Institution Name</th>
                       <th style={{ width: "15%" }}>Email / Mobile</th>
+                      <th style={{ width: "10%" }}>State / UT</th>
                       <th style={{ width: "7%" }}>Status</th>
                       <th style={{ width: "8%" }}>Submission Date</th>
                       <th style={{ width: "8%" }}>Action</th>
@@ -150,6 +173,7 @@ export function ArtistList() {
                             <span className="d-block">{dash(a.email)}</span>
                             <small className="text-muted">{dash(a.mobile)}</small>
                           </td>
+                          <td>{dash(a.region_name)}</td>
                           <td>{statusBadge(a.verified_status)}</td>
                           <td>{formatDate(a.submitted_at)}</td>
                           <td className="text-nowrap">
@@ -202,6 +226,8 @@ type PreviewData = {
   state_name?: string | null;
   district_name?: string | null;
   can_change_status: boolean;
+  changesRequested?: string | null;
+  zccs?: { id: number; code: string; name: string; headquarters: string }[];
 };
 
 // users.gender codes (4-6 come from the artist's My Profile form).
@@ -239,10 +265,14 @@ export function ArtistPreview() {
   const artForms = Object.values(data.artForms ?? {}).join(", ");
   const photo = d.profile_photo_url ?? d.institution_logo_url;
 
-  const decide = async (status: "approved" | "rejected") => {
+  // approved | rejected | returned ("Request Changes": the artist corrects the profile and it comes back as Pending).
+  const decide = async (status: "approved" | "rejected" | "returned") => {
     let remarks: string | null = "";
     if (status === "rejected") {
       remarks = await promptText("Reject registration", "Reason for rejection (sent to the applicant)", true);
+      if (remarks === null) return;
+    } else if (status === "returned") {
+      remarks = await promptText("Request changes", "What should the artist correct or add? (shown to the applicant)", true);
       if (remarks === null) return;
     } else if (!(await confirmAction("Approve registration?", "The applicant will be marked as an approved artist.", "Yes, approve"))) {
       return;
@@ -343,6 +373,12 @@ export function ArtistPreview() {
       {data.approvalRemarks && Number(a.verified_status) === 1 && (
         <div className="alert alert-success"><b>Approval remarks:</b> {data.approvalRemarks}</div>
       )}
+      {Number(a.verified_status) === 3 && (
+        <div className="alert alert-info">
+          <b>Changes requested from the artist:</b> {data.changesRequested ?? "—"}
+          <div className="small mt-1">The registration returns to Pending when the artist saves the corrected profile.</div>
+        </div>
+      )}
 
       <div className="row">
         <div className="col-lg-9">
@@ -409,9 +445,23 @@ export function ArtistPreview() {
               <button type="button" className="btn btn-success" disabled={busy} onClick={() => decide("approved")}>
                 <i className="bi bi-check-lg me-1" /> Approve
               </button>
+              <button type="button" className="btn btn-outline-primary" disabled={busy} onClick={() => decide("returned")}>
+                <i className="bi bi-pencil-square me-1" /> Request Changes
+              </button>
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => decide("rejected")}>
                 <i className="bi bi-x-lg me-1" /> Reject
               </button>
+            </div>
+          )}
+
+          {data.zccs && (
+            <div className="border rounded-3 p-3 mt-3 small">
+              <div className="fw-bold mb-1"><i className="bi bi-geo-alt me-1" aria-hidden="true" />Zonal Cultural Centre</div>
+              {data.zccs.length ? (
+                data.zccs.map((z) => <div key={z.id}>{z.name} ({z.code}), {z.headquarters}</div>)
+              ) : (
+                <span className="text-muted">No ZCC mapped to this State / UT.</span>
+              )}
             </div>
           )}
         </div>

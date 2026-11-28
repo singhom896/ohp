@@ -1,7 +1,7 @@
 "use client";
 
 // Register: first choose the path, then the form for it.
-//   Card 1  Register as Artist / Group   -> Individual Artist / Artist Group / Organisation / Institute
+//   Card 1  Artist / Group / Organisation -> Individual Artist / Artist Group / Organisation / Institute
 //   Card 2  Register as Engagement Partner -> hotels, organisers, corporates, cultural institutions, govt. departments
 // The choice is kept in the URL (?as=artist | ?as=partner) so links such as
 // "Post an Opportunity" can open the partner form directly.
@@ -12,7 +12,7 @@ const PATHS: { id: RegisterPath; icon: string; title: string; desc: string; poin
   {
     id: "artist",
     icon: "🎭",
-    title: "Register as Artist / Group",
+    title: "Artist / Group / Organisation",
     desc: "Register as an Individual Artist, Artist Group or Organisation / Institute to create an artistic profile, showcase your portfolio and discover opportunities.",
     points: ["Individual Artist", "Artist Group (Leader Details)", "Organisation / Institute"],
   },

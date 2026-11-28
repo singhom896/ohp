@@ -20,7 +20,7 @@ class RegistrationCardController extends Controller
 {
     use ApiResponse;
 
-    private const STATUS = [0 => 'Under Review', 1 => 'Registered & Verified', 2 => 'Not Approved'];
+    private const STATUS = [0 => 'Under Review', 1 => 'Registered & Verified', 2 => 'Not Approved', 3 => 'Changes Requested'];
 
     public function __construct(private readonly BookingService $bookings) {}
 

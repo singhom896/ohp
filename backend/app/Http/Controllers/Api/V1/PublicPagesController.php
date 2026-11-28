@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -292,7 +293,13 @@ class PublicPagesController extends Controller
                 ->orWhereRaw("(',' || COALESCE(ag.art_form_id, '') || ',') LIKE ?", ["%,{$id},%"])
                 ->orWhereRaw("(',' || COALESCE(ai.art_form_id, '') || ',') LIKE ?", ["%,{$id},%"])));
 
-        $page = $query->orderByDesc('u.id')->paginate(12, ['*'], 'page', (int) ($data['page'] ?? 1));
+        // Most active artists first: confirmed / completed performances, then
+        // booking (engagement) requests received from Engagement Partners, then newest.
+        $page = $query->leftJoinSub($this->activityQuery(), 'act', 'act.artist_id', '=', 'u.id')
+            ->orderByRaw('COALESCE(act.performances, 0) DESC')
+            ->orderByRaw('COALESCE(act.booking_requests, 0) DESC')
+            ->orderByDesc('u.id')
+            ->paginate(12, ['*'], 'page', (int) ($data['page'] ?? 1));
         $names = $this->artFormNames();
         $states = DB::table('states')->pluck('StateName', 'id');
 
@@ -435,6 +442,76 @@ class PublicPagesController extends Controller
             'respond_by'    => optional($r->respond_by)->toDateString(),
             'budget'        => $r->budget,
         ];
+    }
+
+    // -------------------------------------------------------------- home page
+
+    /**
+     * Live figures for the home page (cached 5 minutes):
+     *   stats       registered artists, opportunities, confirmed performances, States / UTs reached
+     *   categories  main art forms with their number of approved artists
+     *   zccs        the Zonal Cultural Centres and their member States / UTs
+     */
+    public function home(): JsonResponse
+    {
+        $data = Cache::remember('public:home:v2', now()->addMinutes(5), function () {
+            // Approved, listed artists: art-form counts per main category.
+            $listed = $this->artistQuery()->addSelect('ag.primary_art_form_id as ag_primary')->get();
+            $parents = DB::table('art_forms')->where('country_id', self::INDIA)->pluck('parent_id', 'id');
+            $top = fn (int $id) => (int) ($parents[$id] ?? 0) > 0 ? (int) $parents[$id] : $id;
+            $perForm = [];
+            foreach ($listed as $a) {
+                $ids = array_filter(array_merge(
+                    [(int) $a->ar_art_form, (int) ($a->ag_primary ?? 0)],
+                    array_map('intval', explode(',', (string) $a->ag_art_forms)),
+                    array_map('intval', explode(',', (string) $a->ai_art_forms)),
+                ));
+                foreach (array_unique(array_map($top, $ids)) as $id) {
+                    $perForm[$id] = ($perForm[$id] ?? 0) + 1;
+                }
+            }
+            $categories = DB::table('art_forms')->where('country_id', self::INDIA)->where('status', 1)->where('parent_id', 0)
+                ->orderBy('name')->get(['id', 'name', 'description'])
+                ->map(fn ($f) => ['id' => (int) $f->id, 'name' => $f->name, 'artists' => $perForm[$f->id] ?? 0]);
+
+            // Every registered artist / group / organisation account (admin-created ones
+            // stay inactive until the artist sets a password, but are registered).
+            $artists = DB::table('users')->whereIn('role_id', [5, 6, 7]);
+            $reached = (clone $artists)->whereNotNull('state')->distinct()->count('state')
+                + (clone $artists)->whereNull('state')->whereNotNull('region_id')->distinct()->count('region_id');
+
+            $zccs = DB::table('zonal_cultural_centres')->where('status', 1)->orderBy('position')->get(['id', 'code', 'name', 'headquarters'])
+                ->map(fn ($z) => [
+                    'code' => $z->code, 'name' => $z->name, 'headquarters' => $z->headquarters,
+                    'states' => DB::table('zcc_states as zs')->join('states as s', 's.id', '=', 'zs.state_id')
+                        ->where('zs.zcc_id', $z->id)->orderBy('s.StateName')->pluck('s.StateName'),
+                ]);
+
+            return [
+                'stats' => [
+                    'artists'       => (clone $artists)->count(),
+                    'verified'      => $listed->count(),
+                    'opportunities' => DB::table('booking_requirements')->count(),
+                    'performances'  => DB::table('booking_matches')->whereIn('booking_status', ['confirmed', 'completed'])->count(),
+                    'partners'      => DB::table('users')->where('role_id', 11)->where('active', 1)->count(),
+                    'states'        => min($reached, DB::table('states')->count()),
+                ],
+                'categories' => $categories->values(),
+                'zccs'       => $zccs->values(),
+            ];
+        });
+
+        return $this->success($data);
+    }
+
+    /** Per artist: confirmed / completed performances and booking requests received. */
+    private function activityQuery()
+    {
+        return DB::table('booking_matches')
+            ->select('artist_id')
+            ->selectRaw("SUM(CASE WHEN booking_status IN ('confirmed', 'completed') THEN 1 ELSE 0 END) AS performances")
+            ->selectRaw("SUM(CASE WHEN booking_status IS NULL OR booking_status <> 'cancelled' THEN 1 ELSE 0 END) AS booking_requests")
+            ->groupBy('artist_id');
     }
 
     /** Approved artists of every type that have their registration details. */

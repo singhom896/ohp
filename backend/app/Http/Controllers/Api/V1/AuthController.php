@@ -8,11 +8,13 @@ use App\Models\ArtistProfileRevision;
 use App\Models\EngagementPartnerProfile;
 use App\Models\LoginHistory;
 use App\Models\User;
+use App\Support\ZccScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password as PasswordRules;
 use Jenssegers\Agent\Agent;
 use Tymon\JWTAuth\Exceptions\JWTException;
@@ -30,6 +32,9 @@ use Tymon\JWTAuth\Exceptions\TokenExpiredException;
 class AuthController extends Controller
 {
     use ApiResponse;
+
+    /** countries.id of India (Opportunity Hub is India-only). */
+    private const INDIA = 104;
 
     /** Self-registration account types -> roles.role_id */
     private const ACCOUNT_TYPE_ROLES = [
@@ -120,6 +125,14 @@ class AuthController extends Controller
             'password'        => ['required', 'string', 'max:72', 'confirmed', PasswordRules::min(8)->letters()->numbers()],
             'terms'           => ['accepted'],
             'privacy'         => ['accepted'],
+            // Location, same rules as the My Profile / Organisation Profile forms, so the
+            // account is mapped to its Zonal Cultural Centre from day one.
+            'state_id'        => ['required', 'integer', Rule::exists('states', 'id')],
+            'district_id'     => ['required', 'integer', Rule::exists('districts', 'id')
+                ->where('StateCode', DB::table('states')->where('id', $request->integer('state_id'))->value('StateCode') ?? -1)],
+            // City / Town / Village and PIN Code are required for every account type.
+            'city'            => ['required', 'string', 'max:100', "regex:/^[\pL\pM\pN\s.,'()\/-]+$/u"],
+            'pincode'         => ['required', 'regex:/^[1-9][0-9]{5}$/'],
         ];
         if ($type === 'group') {
             $rules['group_name'] = ['required', 'string', 'max:150', self::ORG_NAME];
@@ -159,8 +172,16 @@ class AuthController extends Controller
             'email_otp_token.required'   => 'Please verify your email address with the OTP.',
             'mobile_otp_token.required'  => 'Please verify your mobile number with the OTP.',
             'password.confirmed'         => 'Password and Confirm Password must match.',
-            'terms.accepted'             => 'Please accept the Terms & Conditions.',
-            'privacy.accepted'           => 'Please accept the Privacy Policy.',
+            'terms.accepted'             => 'Please accept the Terms & Conditions and the Privacy Policy.',
+            'privacy.accepted'           => 'Please accept the Terms & Conditions and the Privacy Policy.',
+            'state_id.required'          => 'Please select the State / UT.',
+            'state_id.exists'            => 'Please select a valid State / UT.',
+            'district_id.required'       => 'Please select the district.',
+            'district_id.exists'         => 'Please select a district of the selected State / UT.',
+            'city.required'              => 'Please enter the city / town.',
+            'city.regex'                 => 'City / town contains characters that are not allowed.',
+            'pincode.required'           => 'Please enter the PIN code.',
+            'pincode.regex'              => 'Please enter a valid 6-digit PIN code.',
         ]);
 
         $clean = fn (?string $v) => $v === null ? null : preg_replace('/\s+/', ' ', trim($v));
@@ -212,6 +233,13 @@ class AuthController extends Controller
                 },
                 'designation'         => in_array($type, ['organisation', 'partner'], true) ? $clean($data['designation'] ?? null) : null,
                 'address'             => $type === 'partner' ? $clean($data['address'] ?? null) : null,
+                'country_id'          => self::INDIA,
+                'state'               => (int) $data['state_id'],
+                'district'            => (int) $data['district_id'],
+                // Same State in art_regions, used by older Artist Management screens.
+                'region_id'           => ZccScope::regionForState((int) $data['state_id']),
+                'city'                => $clean($data['city'] ?? null) ?: null,
+                'pincode'             => $data['pincode'] ?? null,
                 'email'               => $data['email'],
                 'mobile'              => $data['mobile'],
                 'password'            => Hash::make($data['password']),
@@ -221,9 +249,12 @@ class AuthController extends Controller
                 'privacy_accepted_at' => now(),
                 'policy_version'      => (string) config('app.policy_version'),
                 // Basic self-registration: the user can log in straight away and
-                // completes the detailed profile from the dashboard.
+                // completes the detailed profile from the dashboard. Artist accounts
+                // start Pending (0) and become Approved (1) only when their Zonal
+                // Cultural Centre / an Admin approves them (User::accountBlockReason
+                // lets pending artists sign in). Engagement Partners are not reviewed.
                 'active'              => 1,
-                'verified_status'     => 1,
+                'verified_status'     => $type === 'partner' ? 1 : 0,
             ])->save();
 
             $user->forceFill(['regno' => generateRegistrationNumber($user->id, self::ACCOUNT_TYPE_ROLES[$type])])->save();
@@ -238,6 +269,10 @@ class AuthController extends Controller
                     'contact_person'    => trim("$first $last"),
                     'designation'       => $clean($data['designation'] ?? null) ?: null,
                     'address'           => $clean($data['address'] ?? null) ?: null,
+                    'state_id'          => (int) $data['state_id'],
+                    'district_id'       => (int) $data['district_id'],
+                    'city'              => $clean($data['city'] ?? null) ?: null,
+                    'pincode'           => $data['pincode'] ?? null,
                     'official_email'    => $data['email'],
                     'contact_number'    => $data['mobile'],
                 ]);
